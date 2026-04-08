@@ -1,0 +1,86 @@
+{
+  "agents": {
+    "defaults": {
+      "workspace": "/workshop/openclaw/workspace",
+      "memorySearch": {
+        "enabled": false
+      },
+      "model": {
+        "primary": "google-vertex/gemini-3-flash-preview",
+        "fallbacks": [
+          "google-vertex/gemini-3.1-pro-preview"
+        ]
+      },
+      "models": {
+        "google-vertex/gemini-3-flash-preview": {
+          "params": {
+            "thinking": {
+              "enabled": false
+            },
+            "maxTokens": 256
+          }
+        },
+        "google-vertex/gemini-3.1-pro-preview": {
+          "params": {
+            "thinking": {
+              "enabled": false
+            },
+            "maxTokens": 256
+          }
+        }
+      }
+    }
+  },
+  "gateway": {
+    "mode": "local",
+    "auth": {
+      "mode": "token",
+      "token": "***REDACTED***"
+    },
+    "port": 18789,
+    "bind": "loopback",
+    "tailscale": {
+      "mode": "off",
+      "resetOnExit": false
+    },
+    "controlUi": {
+      "allowInsecureAuth": false
+    },
+    "nodes": {
+      "denyCommands": []
+    },
+    "trustedProxies": [
+      "127.0.0.1",
+      "::1"
+    ]
+  },
+  "session": {
+    "dmScope": "per-channel-peer"
+  },
+  "tools": {
+    "profile": "coding"
+  },
+  "hooks": {
+    "internal": {
+      "enabled": true,
+      "entries": {
+        "session-memory": {
+          "enabled": true
+        },
+        "command-logger": {
+          "enabled": true
+        }
+      }
+    }
+  },
+  "wizard": {
+    "lastRunAt": "2026-04-08T14:28:16.533Z",
+    "lastRunVersion": "2026.4.8",
+    "lastRunCommand": "onboard",
+    "lastRunMode": "local"
+  },
+  "meta": {
+    "lastTouchedVersion": "2026.4.8",
+    "lastTouchedAt": "2026-04-08T18:45:06.442Z"
+  }
+}

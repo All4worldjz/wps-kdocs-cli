@@ -1,0 +1,130 @@
+dragonclaw
+xlmyyjz
+Wed Apr  8 19:37:45 UTC 2026
+
+OpenClaw 2026.4.8 (9ece252)
+
+Config        : ~/.openclaw/openclaw.json
+Agent dir     : ~/.openclaw/agents/main/agent
+Default       : google-vertex/gemini-3-flash-preview
+Fallbacks (1) : google-vertex/gemini-3.1-pro-preview
+Image model   : -
+Image fallbacks (0): -
+Aliases (0)   : -
+Configured models (2): google-vertex/gemini-3-flash-preview, google-vertex/gemini-3.1-pro-preview
+
+Auth overview
+Auth store    : ~/.openclaw/agents/main/agent/auth-profiles.json
+Shell env     : off
+Providers w/ OAuth/tokens (0): -
+
+Missing auth
+- google-vertex `openclaw configure` or set an API key env var.
+
+OAuth/token status
+- none
+
+OpenClaw status
+
+Overview
+┌──────────────────────┬───────────────────────────────────────────────────────────────────────────────────────────────┐
+│ Item                 │ Value                                                                                         │
+├──────────────────────┼───────────────────────────────────────────────────────────────────────────────────────────────┤
+│ OS                   │ linux 6.17.0-1009-gcp (x64) · node 24.14.1                                                    │
+│ Dashboard            │ http://127.0.0.1:18789/                                                                       │
+│ Tailscale            │ off                                                                                           │
+│ Channel              │ stable (default)                                                                              │
+│ Update               │ pnpm · up to date · npm latest 2026.4.8                                                       │
+│ Gateway              │ local · ws://127.0.0.1:18789 (local loopback) · reachable 198ms · auth token · dragonclaw     │
+│                      │ (10.148.0.2) app 2026.4.8 linux 6.17.0-1009-gcp                                               │
+│ Gateway self         │ dragonclaw (10.148.0.2) app 2026.4.8 linux 6.17.0-1009-gcp                                    │
+│ Gateway service      │ systemd installed · enabled · running (pid 18507, state active)                               │
+│ Node service         │ systemd not installed                                                                         │
+│ Agents               │ 1 · 1 bootstrap file present · sessions 1 · default main active 13m ago                       │
+│ Memory               │ enabled (plugin memory-core) · unavailable                                                    │
+│ Plugin compatibility │ none                                                                                          │
+│ Probes               │ enabled                                                                                       │
+│ Events               │ none                                                                                          │
+│ Tasks                │ none                                                                                          │
+│ Heartbeat            │ 30m (main)                                                                                    │
+│ Last heartbeat       │ ok-token · 13m ago ago · unknown                                                              │
+│ Sessions             │ 1 active · default gemini-3-flash-preview (200k ctx) · ~/.openclaw/agents/main/sessions/      │
+│                      │ sessions.json                                                                                 │
+└──────────────────────┴───────────────────────────────────────────────────────────────────────────────────────────────┘
+
+Security audit
+Summary: 1 critical · 1 warn · 1 info
+  CRITICAL Config file is writable by others
+    /home/xlmyyjz/.openclaw/openclaw.json mode=664; another user could change gateway/auth/tool policies.
+    Fix: chmod 600 /home/xlmyyjz/.openclaw/openclaw.json
+  WARN State dir is a symlink
+    /home/xlmyyjz/.openclaw is a symlink; treat this as an extra trust boundary.
+Full report: openclaw security audit
+Deep probe: openclaw security audit --deep
+
+Channels
+┌──────────┬─────────┬────────┬────────────────────────────────────────────────────────────────────────────────────────┐
+│ Channel  │ Enabled │ State  │ Detail                                                                                 │
+├──────────┼─────────┼────────┼────────────────────────────────────────────────────────────────────────────────────────┤
+└──────────┴─────────┴────────┴────────────────────────────────────────────────────────────────────────────────────────┘
+
+Sessions
+┌────────────────────────────────────────┬────────┬─────────┬────────────────────────┬─────────────────────────────────┐
+│ Key                                    │ Kind   │ Age     │ Model                  │ Tokens                          │
+├────────────────────────────────────────┼────────┼─────────┼────────────────────────┼─────────────────────────────────┤
+│ agent:main:main                        │ direct │ 13m ago │ gemini-3-flash-preview │ 8.1k/1049k (1%) · 🗄️ 40% cached │
+└────────────────────────────────────────┴────────┴─────────┴────────────────────────┴─────────────────────────────────┘
+
+Health
+┌──────────┬───────────┬───────────────────────────────────────────────────────────────────────────────────────────────┐
+│ Item     │ Status    │ Detail                                                                                        │
+├──────────┼───────────┼───────────────────────────────────────────────────────────────────────────────────────────────┤
+│ Gateway  │ reachable │ 0ms                                                                                           │
+└──────────┴───────────┴───────────────────────────────────────────────────────────────────────────────────────────────┘
+
+FAQ: https://docs.openclaw.ai/faq
+Troubleshooting: https://docs.openclaw.ai/troubleshooting
+Next steps:
+  Need to share?      openclaw status --all
+  Need to debug live? openclaw logs --follow
+  Need to test channels? openclaw status --deep
+
+# /home/xlmyyjz/.config/systemd/user/openclaw-gateway.service
+[Unit]
+Description=OpenClaw Gateway (v2026.4.8)
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+ExecStart=/usr/bin/node /usr/lib/node_modules/openclaw/dist/index.js gateway --port 18789
+Restart=always
+RestartSec=5
+TimeoutStopSec=30
+TimeoutStartSec=30
+SuccessExitStatus=0 143
+KillMode=control-group
+Environment=HOME=/home/xlmyyjz
+Environment=OPENCLAW_STATE_DIR=/workshop/openclaw
+Environment=TMPDIR=/tmp
+Environment=PATH=/usr/bin:/home/xlmyyjz/.local/bin:/home/xlmyyjz/.npm-global/bin:/home/xlmyyjz/bin:/home/xlmyyjz/.volta/bin:/home/xlmyyjz/.asdf/shims:/home/xlmyyjz/.bun/bin:/home/xlmyyjz/.nvm/current/bin:/home/xlmyyjz/.fnm/current/bin:/home/xlmyyjz/.local/share/pnpm:/usr/local/bin:/bin
+Environment=OPENCLAW_GATEWAY_PORT=18789
+Environment=OPENCLAW_SYSTEMD_UNIT=openclaw-gateway.service
+Environment="OPENCLAW_WINDOWS_TASK_NAME=OpenClaw Gateway"
+Environment=OPENCLAW_SERVICE_MARKER=openclaw
+Environment=OPENCLAW_SERVICE_KIND=gateway
+Environment=OPENCLAW_SERVICE_VERSION=2026.4.8
+
+[Install]
+WantedBy=default.target
+
+# /home/xlmyyjz/.config/systemd/user/openclaw-gateway.service.d/override.conf
+[Service]
+Environment=GOOGLE_CLOUD_PROJECT=project-72ff2424-2b06-4cea-84f
+Environment=GCLOUD_PROJECT=project-72ff2424-2b06-4cea-84f
+Environment=GOOGLE_CLOUD_LOCATION=global
+
+[override.conf]
+[Service]
+Environment=GOOGLE_CLOUD_PROJECT=project-72ff2424-2b06-4cea-84f
+Environment=GCLOUD_PROJECT=project-72ff2424-2b06-4cea-84f
+Environment=GOOGLE_CLOUD_LOCATION=global
