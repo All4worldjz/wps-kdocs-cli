@@ -1,0 +1,13 @@
+{
+  "name": "gai-cn-clone",
+  "version": "1.0.0",
+  "private": true,
+  "scripts": {
+    "install:all": "npm install && npm install --prefix web && npm install --prefix server",
+    "dev": "concurrently \"npm run dev --prefix web\" \"npm run dev --prefix server\"",
+    "start:server": "npm run start --prefix server"
+  },
+  "devDependencies": {
+    "concurrently": "^8.2.2"
+  }
+}
