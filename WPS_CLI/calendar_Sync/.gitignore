@@ -1,0 +1,16 @@
+# Data files
+*.db
+*.db-journal
+*.db-wal
+
+# Build artifacts
+wps-caldav-proxy
+wps-caldav-proxy.exe
+
+# Local configs with credentials
+*.yaml
+!configs/config.yaml.example
+config.yaml
+
+# OS files
+.DS_Store

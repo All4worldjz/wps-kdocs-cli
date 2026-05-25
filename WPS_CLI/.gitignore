@@ -1,0 +1,19 @@
+# Backup data and state (user data, should not be tracked)
+wps_backup_data/
+wps_backup_state/
+wps_shared_files/
+
+# Python cache
+__pycache__/
+*.pyc
+*.pyo
+
+# macOS
+.DS_Store
+
+# IDE
+.vscode/
+.idea/
+
+# WPS CLI tool artifacts
+com.wps.backup.plist

@@ -1,0 +1,77 @@
+package main
+
+import (
+	"flag"
+	"log"
+	"os"
+	"os/signal"
+	"syscall"
+
+	"wps-caldav-proxy/internal/cache"
+	"wps-caldav-proxy/internal/caldavserver"
+	"wps-caldav-proxy/internal/config"
+	"wps-caldav-proxy/internal/poller"
+	"wps-caldav-proxy/internal/wpsclient"
+)
+
+func main() {
+	configPath := flag.String("config", "config.yaml", "Path to YAML config file")
+	flag.Parse()
+
+	log.SetFlags(log.LstdFlags | log.Lshortfile)
+	log.Printf("[Main] WPS CalDAV Proxy starting...")
+
+	// Load config
+	cfg, err := config.Load(*configPath)
+	if err != nil {
+		log.Fatalf("[Main] Failed to load config: %v", err)
+	}
+	log.Printf("[Main] Config loaded: proxy=%s, wps=%s", cfg.Proxy.ListenAddr, cfg.WPS.ServerURL)
+
+	// Initialize cache
+	c, err := cache.New(cfg.Cache.DBPath)
+	if err != nil {
+		log.Fatalf("[Main] Failed to init cache: %v", err)
+	}
+	defer c.Close()
+	log.Printf("[Main] Cache initialized: %s", cfg.Cache.DBPath)
+
+	// Initialize WPS client
+	wpsClient := wpsclient.New(cfg.WPS.ServerURL, cfg.WPS.Username, cfg.WPS.Password)
+
+	// Discover WPS calendar
+	log.Printf("[Main] Discovering WPS calendar...")
+	if err := wpsClient.Discover(); err != nil {
+		log.Fatalf("[Main] WPS discovery failed: %v", err)
+	}
+	log.Printf("[Main] WPS calendar: %s", wpsClient.CalendarURL())
+
+	// Start poller
+	if cfg.Poller.Enabled {
+		p := poller.New(wpsClient, c, cfg.Poller.IntervalSeconds)
+		p.RunOnce() // Initial sync before serving
+		go p.Start()
+		defer p.Stop()
+	}
+
+	// Start CalDAV server
+	server := caldavserver.New(c, cfg.Proxy.ProxyUser, cfg.Proxy.ProxyPass, "/caldav")
+
+	log.Printf("[Main] Starting CalDAV server...")
+
+	errCh := make(chan error, 1)
+	go func() {
+		errCh <- server.ListenAndServe(cfg.Proxy.ListenAddr)
+	}()
+
+	// Wait for signal or error
+	sigCh := make(chan os.Signal, 1)
+	signal.Notify(sigCh, syscall.SIGINT, syscall.SIGTERM)
+
+	select {
+	case err := <-errCh:
+		log.Fatalf("[Main] Server error: %v", err)
+	case sig := <-sigCh:
+		log.Printf("[Main] Received signal %v, shutting down...", sig)
+	}
+}

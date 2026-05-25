@@ -1,0 +1,16 @@
+wps:
+  server_url: "https://caldav.wps.cn"
+  username: "u_xQCBlhQAnuSvdY" # Your WPS CalDAV Username
+  password: "LCGOFYWFxRon9rDYc3XIP30Gim" # Your WPS CalDAV App Password
+
+proxy:
+  listen_addr: "127.0.0.1:8843"   # Loopback only for Nginx reverse-proxy
+  proxy_user: "caldav"             # Basic Auth username for clients
+  proxy_pass: "9s7kZ7X4Y7kbgxKMs8uj" # Basic Auth password for clients (change in production!)
+
+cache:
+  db_path: "data/cache.db"
+
+poller:
+  interval_seconds: 60
+  enabled: true

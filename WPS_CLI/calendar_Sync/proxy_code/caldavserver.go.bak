@@ -1,0 +1,395 @@
+package caldavserver
+
+import (
+	"encoding/base64"
+	"fmt"
+	"io"
+	"log"
+	"net/http"
+	"strings"
+
+	"wps-caldav-proxy/internal/cache"
+)
+
+type Server struct {
+	cache     *cache.Cache
+	proxyUser string
+	proxyPass string
+	basePath  string
+}
+
+func New(c *cache.Cache, proxyUser, proxyPass, basePath string) *Server {
+	return &Server{
+		cache:     c,
+		proxyUser: proxyUser,
+		proxyPass: proxyPass,
+		basePath:  strings.TrimRight(basePath, "/"),
+	}
+}
+
+func (s *Server) ServeHTTP(w http.ResponseWriter, r *http.Request) {
+	if !s.checkAuth(r) {
+		w.Header().Set("WWW-Authenticate", `Basic realm="WPS CalDAV Proxy"`)
+		http.Error(w, "Unauthorized", http.StatusUnauthorized)
+		return
+	}
+
+	log.Printf("[CalDAV] %s %s", r.Method, r.URL.Path)
+
+	switch r.Method {
+	case "OPTIONS":
+		s.handleOptions(w)
+	case "PROPFIND":
+		s.handlePropfind(w, r)
+	case "REPORT":
+		s.handleReport(w, r)
+	case "GET":
+		s.handleGet(w, r)
+	default:
+		http.Error(w, "Method Not Allowed", http.StatusMethodNotAllowed)
+	}
+}
+
+func (s *Server) checkAuth(r *http.Request) bool {
+	auth := r.Header.Get("Authorization")
+	if !strings.HasPrefix(auth, "Basic ") {
+		return false
+	}
+	payload, err := base64.StdEncoding.DecodeString(auth[6:])
+	if err != nil {
+		return false
+	}
+	parts := strings.SplitN(string(payload), ":", 2)
+	if len(parts) != 2 {
+		return false
+	}
+	return parts[0] == s.proxyUser && parts[1] == s.proxyPass
+}
+
+func (s *Server) handleOptions(w http.ResponseWriter) {
+	w.Header().Set("DAV", "1, 2, 3, calendar-access")
+	w.Header().Set("Allow", "OPTIONS, PROPFIND, REPORT, GET")
+	w.WriteHeader(http.StatusOK)
+}
+
+func (s *Server) handlePropfind(w http.ResponseWriter, r *http.Request) {
+	body, _ := io.ReadAll(r.Body)
+	bodyStr := string(body)
+
+	wantCtag := strings.Contains(bodyStr, "getctag")
+	wantSyncToken := strings.Contains(bodyStr, "sync-token")
+	wantPrincipal := strings.Contains(bodyStr, "current-user-principal") || strings.Contains(bodyStr, "principal-URL")
+	wantCalHome := strings.Contains(bodyStr, "calendar-home-set")
+
+	depth := r.Header.Get("Depth")
+	isCalendarRoot := strings.HasSuffix(r.URL.Path, "/default/") || strings.HasSuffix(r.URL.Path, "/default")
+
+	userPath := s.basePath + "/u/" + s.proxyUser
+	calendarPath := userPath + "/default"
+
+	if isCalendarRoot && depth == "1" {
+		s.propfindCalendarEvents(w, calendarPath)
+		return
+	}
+	if isCalendarRoot && depth == "0" {
+		s.propfindCalendarProps(w, calendarPath, wantCtag, wantSyncToken)
+		return
+	}
+	if wantPrincipal || wantCalHome {
+		s.propfindPrincipal(w, userPath, calendarPath)
+		return
+	}
+	s.propfindCollection(w, userPath)
+}
+
+func (s *Server) propfindPrincipal(w http.ResponseWriter, userPath, calendarPath string) {
+	w.Header().Set("Content-Type", "text/xml; charset=utf-8")
+	w.WriteHeader(http.StatusMultiStatus)
+
+	fmt.Fprintf(w, `<?xml version="1.0" encoding="UTF-8"?>
+<D:multistatus xmlns:D="DAV:" xmlns:C="urn:ietf:params:xml:ns:caldav" xmlns:CS="http://calendarserver.org/ns/">
+<D:response>
+  <D:href>%s/</D:href>
+  <D:propstat>
+    <D:prop>
+      <D:current-user-principal><D:href>%s/</D:href></D:current-user-principal>
+      <D:principal-URL><D:href>%s/</D:href></D:principal-URL>
+      <C:calendar-home-set><D:href>%s/</D:href></C:calendar-home-set>
+      <D:displayname>%s</D:displayname>
+      <D:resourcetype><D:collection/><D:principal/></D:resourcetype>
+    </D:prop>
+    <D:status>HTTP/1.1 200 OK</D:status>
+  </D:propstat>
+</D:response>
+<D:response>
+  <D:href>%s/</D:href>
+  <D:propstat>
+    <D:prop>
+      <D:displayname>WPS Calendar</D:displayname>
+      <C:calendar-description>WPS Calendar via Proxy</C:calendar-description>
+      <D:resourcetype><D:collection/><C:calendar/></D:resourcetype>
+    </D:prop>
+    <D:status>HTTP/1.1 200 OK</D:status>
+  </D:propstat>
+</D:response>
+</D:multistatus>`,
+		userPath, userPath, userPath, userPath, s.proxyUser, calendarPath)
+}
+
+func (s *Server) propfindCalendarProps(w http.ResponseWriter, calendarPath string, wantCtag, wantSyncToken bool) {
+	w.Header().Set("Content-Type", "text/xml; charset=utf-8")
+	w.WriteHeader(http.StatusMultiStatus)
+
+	ctag := s.cache.StableCtag()
+
+	fmt.Fprintf(w, `<?xml version="1.0" encoding="UTF-8"?>
+<D:multistatus xmlns:D="DAV:" xmlns:C="urn:ietf:params:xml:ns:caldav" xmlns:CS="http://calendarserver.org/ns/">
+<D:response>
+  <D:href>%s/</D:href>
+  <D:propstat>
+    <D:prop>
+      <D:displayname>WPS Calendar</D:displayname>
+      <C:calendar-description>WPS Calendar via Proxy</C:calendar-description>
+      <D:resourcetype><D:collection/><C:calendar/></D:resourcetype>
+      <C:supported-calendar-component-set><C:comp name="VEVENT"/></C:supported-calendar-component-set>`, calendarPath)
+
+	if ctag != "" {
+		fmt.Fprintf(w, "<CS:getctag>%s</CS:getctag>", ctag)
+	}
+	fmt.Fprintf(w, "<D:sync-token>%d</D:sync-token>", s.cache.Revision())
+
+	fmt.Fprintf(w, `</D:prop><D:status>HTTP/1.1 200 OK</D:status></D:propstat></D:response></D:multistatus>`)
+}
+
+func (s *Server) propfindCalendarEvents(w http.ResponseWriter, calendarPath string) {
+	events, err := s.cache.GetAllEvents()
+	if err != nil {
+		http.Error(w, "Internal Server Error", http.StatusInternalServerError)
+		return
+	}
+
+	w.Header().Set("Content-Type", "text/xml; charset=utf-8")
+	w.WriteHeader(http.StatusMultiStatus)
+
+	var xml strings.Builder
+	xml.WriteString(`<?xml version="1.0" encoding="UTF-8"?>
+<D:multistatus xmlns:D="DAV:" xmlns:C="urn:ietf:params:xml:ns:caldav" xmlns:CS="http://calendarserver.org/ns/">
+`)
+
+	for _, ev := range events {
+		href := fmt.Sprintf("%s/%s.ics", calendarPath, ev.UID)
+		xml.WriteString(fmt.Sprintf(`<D:response>
+  <D:href>%s</D:href>
+  <D:propstat>
+    <D:prop>
+      <D:getetag>"%s"</D:getetag>
+      <D:getcontenttype>text/calendar; component=VEVENT</D:getcontenttype>
+    </D:prop>
+    <D:status>HTTP/1.1 200 OK</D:status>
+  </D:propstat>
+</D:response>
+`, href, ev.ETag))
+	}
+
+	xml.WriteString("</D:multistatus>")
+	w.Write([]byte(xml.String()))
+}
+
+func (s *Server) propfindCollection(w http.ResponseWriter, userPath string) {
+	w.Header().Set("Content-Type", "text/xml; charset=utf-8")
+	w.WriteHeader(http.StatusMultiStatus)
+	fmt.Fprintf(w, `<?xml version="1.0" encoding="UTF-8"?>
+<D:multistatus xmlns:D="DAV:">
+<D:response>
+  <D:href>%s/</D:href>
+  <D:propstat>
+    <D:prop><D:displayname>%s</D:displayname><D:resourcetype><D:collection/></D:resourcetype></D:prop>
+    <D:status>HTTP/1.1 200 OK</D:status>
+  </D:propstat>
+</D:response>
+</D:multistatus>`, userPath, s.proxyUser)
+}
+
+func (s *Server) handleReport(w http.ResponseWriter, r *http.Request) {
+	body, _ := io.ReadAll(r.Body)
+	bodyStr := string(body)
+
+	if strings.Contains(bodyStr, "sync-collection") {
+		s.handleSyncCollection(w, bodyStr)
+	} else if strings.Contains(bodyStr, "calendar-query") {
+		s.handleCalendarQuery(w, bodyStr)
+	} else {
+		http.Error(w, "Unsupported REPORT", http.StatusBadRequest)
+	}
+}
+
+func (s *Server) handleSyncCollection(w http.ResponseWriter, body string) {
+	calendarPath := s.basePath + "/u/" + s.proxyUser + "/default"
+
+	var clientRev int64
+	if strings.Contains(body, "<D:sync-token>") {
+		fmt.Sscanf(body, "%*[<]D:sync-token>%d", &clientRev)
+	}
+
+	currentRev := s.cache.Revision()
+
+	if clientRev >= currentRev {
+		w.Header().Set("Content-Type", "text/xml; charset=utf-8")
+		w.WriteHeader(http.StatusMultiStatus)
+		fmt.Fprintf(w, `<?xml version="1.0" encoding="UTF-8"?>
+<D:multistatus xmlns:D="DAV:"><D:sync-token>%d</D:sync-token></D:multistatus>`, currentRev)
+		return
+	}
+
+	events, err := s.cache.GetAllEvents()
+	if err != nil {
+		http.Error(w, "Internal Server Error", http.StatusInternalServerError)
+		return
+	}
+
+	w.Header().Set("Content-Type", "text/xml; charset=utf-8")
+	w.WriteHeader(http.StatusMultiStatus)
+
+	var xml strings.Builder
+	xml.WriteString(`<?xml version="1.0" encoding="UTF-8"?>
+<D:multistatus xmlns:D="DAV:" xmlns:C="urn:ietf:params:xml:ns:caldav">
+`)
+	xml.WriteString(fmt.Sprintf("  <D:sync-token>%d</D:sync-token>\n", currentRev))
+
+	for _, ev := range events {
+		href := fmt.Sprintf("%s/%s.ics", calendarPath, ev.UID)
+		xml.WriteString(fmt.Sprintf(`<D:response>
+  <D:href>%s</D:href>
+  <D:propstat>
+    <D:prop>
+      <D:getetag>"%s"</D:getetag>
+      <C:calendar-data>%s</C:calendar-data>
+    </D:prop>
+    <D:status>HTTP/1.1 200 OK</D:status>
+  </D:propstat>
+</D:response>
+`, href, ev.ETag, xmlEscape(ev.ICalData)))
+	}
+
+	xml.WriteString("</D:multistatus>")
+	w.Write([]byte(xml.String()))
+}
+
+func (s *Server) handleCalendarQuery(w http.ResponseWriter, body string) {
+	calendarPath := s.basePath + "/u/" + s.proxyUser + "/default"
+
+	wantCalendarData := strings.Contains(body, "calendar-data")
+	wantETag := strings.Contains(body, "getetag")
+	hasTimeRange := strings.Contains(body, "time-range")
+
+	var timeStart, timeEnd string
+	if hasTimeRange {
+		startIdx := strings.Index(body, "start=")
+		if startIdx > 0 {
+			timeStart = body[startIdx+7 : startIdx+7+15]
+		}
+		endIdx := strings.Index(body, "end=")
+		if endIdx > 0 {
+			timeEnd = body[endIdx+5 : endIdx+5+15]
+		}
+	}
+
+	events, err := s.cache.GetAllEvents()
+	if err != nil {
+		http.Error(w, "Internal Server Error", http.StatusInternalServerError)
+		return
+	}
+
+	w.Header().Set("Content-Type", "text/xml; charset=utf-8")
+	w.WriteHeader(http.StatusMultiStatus)
+
+	var xml strings.Builder
+	xml.WriteString(`<?xml version="1.0" encoding="UTF-8"?>
+<D:multistatus xmlns:D="DAV:" xmlns:C="urn:ietf:params:xml:ns:caldav">
+`)
+
+	for _, ev := range events {
+		if hasTimeRange && !eventInTimeRange(ev.ICalData, timeStart, timeEnd) {
+			continue
+		}
+
+		href := fmt.Sprintf("%s/%s.ics", calendarPath, ev.UID)
+		xml.WriteString(fmt.Sprintf(`<D:response>
+  <D:href>%s</D:href>
+  <D:propstat>
+    <D:prop>
+`, href))
+
+		if wantETag {
+			xml.WriteString(fmt.Sprintf(`      <D:getetag>"%s"</D:getetag>
+`, ev.ETag))
+		}
+		if wantCalendarData {
+			xml.WriteString(fmt.Sprintf(`      <C:calendar-data>%s</C:calendar-data>
+`, xmlEscape(ev.ICalData)))
+		}
+
+		xml.WriteString(`    </D:prop>
+    <D:status>HTTP/1.1 200 OK</D:status>
+  </D:propstat>
+</D:response>
+`)
+	}
+
+	xml.WriteString("</D:multistatus>")
+	w.Write([]byte(xml.String()))
+}
+
+func (s *Server) handleGet(w http.ResponseWriter, r *http.Request) {
+	parts := strings.Split(strings.TrimSuffix(r.URL.Path, ".ics"), "/")
+	if len(parts) < 2 {
+		http.Error(w, "Not Found", http.StatusNotFound)
+		return
+	}
+	uid := parts[len(parts)-1]
+
+	ev, err := s.cache.GetEvent(uid)
+	if err != nil || ev == nil {
+		http.Error(w, "Not Found", http.StatusNotFound)
+		return
+	}
+
+	w.Header().Set("Content-Type", "text/calendar; component=VEVENT")
+	w.Header().Set("ETag", fmt.Sprintf(`"%s"`, ev.ETag))
+	w.Write([]byte(ev.ICalData))
+}
+
+func eventInTimeRange(icalData, timeStart, timeEnd string) bool {
+	if timeStart == "" && timeEnd == "" {
+		return true
+	}
+	for _, line := range strings.Split(icalData, "\n") {
+		if strings.HasPrefix(line, "DTSTART") || strings.HasPrefix(line, "DTEND") {
+			val := line[7:]
+			if strings.HasPrefix(val, ";") {
+				parts := strings.SplitN(val, ":", 2)
+				if len(parts) == 2 {
+					val = parts[1]
+				}
+			}
+			if val >= timeStart && (timeEnd == "" || val <= timeEnd) {
+				return true
+			}
+		}
+	}
+	return false
+}
+
+func xmlEscape(s string) string {
+	s = strings.ReplaceAll(s, "&", "&amp;")
+	s = strings.ReplaceAll(s, "<", "&lt;")
+	s = strings.ReplaceAll(s, ">", "&gt;")
+	s = strings.ReplaceAll(s, "\"", "&quot;")
+	return s
+}
+
+func (s *Server) ListenAndServe(addr string) error {
+	log.Printf("[Server] Starting CalDAV proxy on %s", addr)
+	log.Printf("[Server] User: %s, BasePath: %s", s.proxyUser, s.basePath)
+	return http.ListenAndServe(addr, s)
+}

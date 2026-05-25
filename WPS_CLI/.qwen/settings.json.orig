@@ -1,0 +1,34 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(tee *)",
+      "Bash(---)",
+      "Bash(- *)",
+      "Bash(个事件)",
+      "Bash(2秒内变化)",
+      "Bash(特性)",
+      "Bash(wps)",
+      "Bash(feishu)",
+      "Bash(------)",
+      "Bash(-----)",
+      "Bash(--------)",
+      "Bash(认证)",
+      "Bash(digest)",
+      "Bash(basic)",
+      "Bash(事件获取)",
+      "Bash(report *)",
+      "Bash(ctag *)",
+      "Bash(url)",
+      "Bash(时间戳数字)",
+      "Bash(不稳定)",
+      "Bash(重定向)",
+      "Bash(307)",
+      "Bash(无)",
+      "Bash(1. *)",
+      "Bash(2. *)",
+      "Bash(3. *)",
+      "Bash(详见 *)"
+    ]
+  },
+  "$version": 4
+}

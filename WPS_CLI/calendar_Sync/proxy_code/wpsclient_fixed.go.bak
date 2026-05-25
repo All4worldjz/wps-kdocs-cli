@@ -1,0 +1,406 @@
+package wpsclient
+
+import (
+	"bytes"
+	"crypto/md5"
+	"fmt"
+	"io"
+	"math/rand"
+	"net/http"
+	"net/url"
+	"regexp"
+	"strings"
+	"time"
+)
+
+type Client struct {
+	httpClient *http.Client
+	serverURL  string
+	username   string
+	password   string
+	principal  string
+	calHome    string
+	calendar   string
+}
+
+func New(serverURL, username, password string) *Client {
+	return &Client{
+		httpClient: &http.Client{Timeout: 30 * time.Second},
+		serverURL:  strings.TrimRight(serverURL, "/"),
+		username:   username,
+		password:   password,
+	}
+}
+
+// Digest Auth
+func (c *Client) digestAuth(wwwAuth string, method, uri string) string {
+	params := parseDigestParams(wwwAuth)
+	nonce := params["nonce"]
+	realm := params["realm"]
+	qop := params["qop"]
+	algorithm := params["algorithm"]
+	if algorithm == "" {
+		algorithm = "MD5"
+	}
+
+	cnonce := fmt.Sprintf("%08x", rand.Int63())
+	nc := "00000001"
+
+	ha1 := md5Hex(fmt.Sprintf("%s:%s:%s", c.username, realm, c.password))
+	ha2 := md5Hex(fmt.Sprintf("%s:%s", method, uri))
+
+	var response string
+	if qop == "auth" {
+		response = md5Hex(fmt.Sprintf("%s:%s:%s:%s:%s:%s", ha1, nonce, nc, cnonce, qop, ha2))
+	} else {
+		response = md5Hex(fmt.Sprintf("%s:%s:%s", ha1, nonce, ha2))
+	}
+
+	parts := []string{
+		fmt.Sprintf(`username="%s"`, c.username),
+		fmt.Sprintf(`realm="%s"`, realm),
+		fmt.Sprintf(`nonce="%s"`, nonce),
+		fmt.Sprintf(`uri="%s"`, uri),
+		fmt.Sprintf(`response="%s"`, response),
+		fmt.Sprintf(`algorithm=%s`, algorithm),
+	}
+	if qop != "" {
+		parts = append(parts, fmt.Sprintf(`qop=%s`, qop), fmt.Sprintf(`nc=%s`, nc), fmt.Sprintf(`cnonce="%s"`, cnonce))
+	}
+	if opaque, ok := params["opaque"]; ok {
+		parts = append(parts, fmt.Sprintf(`opaque="%s"`, opaque))
+	}
+
+	return "Digest " + strings.Join(parts, ", ")
+}
+
+func parseDigestParams(header string) map[string]string {
+	params := make(map[string]string)
+	re := regexp.MustCompile(`(\w+)=("([^"]*)"|([^,]+))`)
+	for _, match := range re.FindAllStringSubmatch(header, -1) {
+		key := match[1]
+		val := match[3]
+		if val == "" {
+			val = match[4]
+		}
+		params[key] = strings.TrimSpace(val)
+	}
+	return params
+}
+
+func md5Hex(s string) string {
+	h := md5.Sum([]byte(s))
+	return fmt.Sprintf("%x", h)
+}
+
+// doRequest makes HTTP request with Digest Auth + redirect handling
+func (c *Client) doRequest(method, path string, body []byte, contentType string) (int, []byte, error) {
+	fullURL := c.serverURL + path
+
+	var reqBody io.Reader
+	if body != nil {
+		reqBody = bytes.NewReader(body)
+	}
+
+	// First request
+	req, err := http.NewRequest(method, fullURL, reqBody)
+	if err != nil {
+		return 0, nil, err
+	}
+	req.Header.Set("User-Agent", "WPS-Caldav-Proxy/1.0")
+	if contentType != "" {
+		req.Header.Set("Content-Type", contentType)
+	}
+
+	resp, err := c.httpClient.Do(req)
+	if err != nil {
+		return 0, nil, err
+	}
+	defer resp.Body.Close()
+
+	// Handle 401 Digest challenge
+	if resp.StatusCode == 401 {
+		wwwAuth := resp.Header.Get("Www-Authenticate")
+		if wwwAuth == "" {
+			wwwAuth = resp.Header.Get("WWW-Authenticate")
+		}
+
+		if wwwAuth == "" || !strings.HasPrefix(wwwAuth, "Digest ") {
+			respBody, _ := io.ReadAll(resp.Body)
+			return resp.StatusCode, respBody, fmt.Errorf("unexpected auth challenge: %s", wwwAuth)
+		}
+
+		authHeader := c.digestAuth(wwwAuth, method, path)
+
+		var reqBody2 io.Reader
+		if body != nil {
+			reqBody2 = bytes.NewReader(body)
+		}
+		req2, _ := http.NewRequest(method, fullURL, reqBody2)
+		req2.Header.Set("User-Agent", "WPS-Caldav-Proxy/1.0")
+		req2.Header.Set("Authorization", authHeader)
+		if contentType != "" {
+			req2.Header.Set("Content-Type", contentType)
+		}
+
+		resp2, err := c.httpClient.Do(req2)
+		if err != nil {
+			return 0, nil, err
+		}
+		defer resp2.Body.Close()
+
+		respBody2, _ := io.ReadAll(resp2.Body)
+		return resp2.StatusCode, respBody2, nil
+	}
+
+	// Handle redirects
+	if resp.StatusCode == 301 || resp.StatusCode == 302 || resp.StatusCode == 307 {
+		newURL := resp.Header.Get("Location")
+		if newURL == "" {
+			return resp.StatusCode, nil, fmt.Errorf("redirect with no Location")
+		}
+		u, err := url.Parse(newURL)
+		if err != nil {
+			return resp.StatusCode, nil, err
+		}
+		redirectPath := u.Path
+		if u.RawQuery != "" {
+			redirectPath += "?" + u.RawQuery
+		}
+		return c.doRequest(method, redirectPath, body, contentType)
+	}
+
+	respBody, err := io.ReadAll(resp.Body)
+	if err != nil {
+		return resp.StatusCode, nil, err
+	}
+
+	return resp.StatusCode, respBody, nil
+}
+
+// Discover performs CalDAV discovery
+func (c *Client) Discover() error {
+	xmlBody := `<?xml version="1.0" encoding="utf-8"?>
+<D:propfind xmlns:D="DAV:" xmlns:C="urn:ietf:params:xml:ns:caldav">
+  <D:prop>
+    <D:current-user-principal/>
+    <C:calendar-home-set/>
+  </D:prop>
+</D:propfind>`
+
+	status, body, err := c.doRequest("PROPFIND", "/", []byte(xmlBody), "text/xml; charset=utf-8")
+	if err != nil {
+		return fmt.Errorf("propfind root: %w", err)
+	}
+	if status != 207 {
+		return fmt.Errorf("propfind root returned %d: %s", status, trunc(string(body), 200))
+	}
+
+	principal := extractHref(body, "current-user-principal")
+	calHome := extractHref(body, "calendar-home-set")
+
+	if principal == "" {
+		return fmt.Errorf("could not discover principal URL; got: %s", trunc(string(body), 300))
+	}
+	if calHome == "" {
+		calHome = principal
+	}
+
+	c.principal = principal
+	c.calHome = calHome
+
+	// Find calendar
+	calBody := `<?xml version="1.0" encoding="utf-8"?>
+<D:propfind xmlns:D="DAV:" xmlns:C="urn:ietf:params:xml:ns:caldav" xmlns:CS="http://calendarserver.org/ns/">
+  <D:prop>
+    <D:displayname/>
+    <C:supported-calendar-component-set/>
+    <C:calendar-description/>
+  </D:prop>
+</D:propfind>`
+
+	status, body, err = c.doRequest("PROPFIND", calHome, []byte(calBody), "text/xml; charset=utf-8")
+	if err != nil {
+		return fmt.Errorf("propfind calendar home: %w", err)
+	}
+	if status != 207 {
+		return fmt.Errorf("propfind cal home returned %d: %s", status, trunc(string(body), 200))
+	}
+
+	calendar := extractCalendarHref(body, calHome)
+	if calendar == "" {
+		// Fallback: find any href ending with a UUID pattern
+		calendar = extractFirstCalendarHref(body)
+	}
+	if calendar == "" {
+		return fmt.Errorf("could not discover calendar URL; got: %s", trunc(string(body), 300))
+	}
+
+	c.calendar = calendar
+	return nil
+}
+
+func (c *Client) CalendarURL() string {
+	return c.calendar
+}
+
+// FetchEvents fetches all events
+func (c *Client) FetchEvents() ([]EventInfo, error) {
+	if c.calendar == "" {
+		if err := c.Discover(); err != nil {
+			return nil, err
+		}
+	}
+
+	xmlBody := `<?xml version="1.0" encoding="utf-8"?>
+<C:calendar-query xmlns:D="DAV:" xmlns:C="urn:ietf:params:xml:ns:caldav">
+  <D:prop>
+    <D:getetag/>
+    <C:calendar-data/>
+  </D:prop>
+  <C:filter>
+    <C:comp-filter name="VCALENDAR">
+      <C:comp-filter name="VEVENT"/>
+    </C:comp-filter>
+  </C:filter>
+</C:calendar-query>`
+
+	status, body, err := c.doRequest("REPORT", c.calendar, []byte(xmlBody), "text/xml; charset=utf-8")
+	if err != nil {
+		return nil, err
+	}
+	if status != 207 {
+		return nil, fmt.Errorf("calendar-query returned %d: %s", status, trunc(string(body), 300))
+	}
+
+	return parseEventsXML(string(body)), nil
+}
+
+type EventInfo struct {
+	UID      string
+	Href     string
+	ETag     string
+	ICalData string
+}
+
+// ====== XML Parsing (case-insensitive tag matching) ======
+
+func extractHref(xmlData []byte, tagName string) string {
+	s := string(xmlData)
+	// Case-insensitive regex
+	re := regexp.MustCompile(fmt.Sprintf(`(?i)<%s>.*?<href[^>]*>([^<]+)</href>.*?</%s>`, tagName, tagName))
+	m := re.FindStringSubmatch(s)
+	if len(m) > 1 {
+		return m[1]
+	}
+
+	// Fallback: find first href
+	re2 := regexp.MustCompile(`(?i)<href[^>]*>([^<]+)</href>`)
+	m2 := re2.FindStringSubmatch(s)
+	if len(m2) > 1 {
+		return m2[1]
+	}
+	return ""
+}
+
+func extractCalendarHref(xmlData []byte, calHome string) string {
+	s := string(xmlData)
+	re := regexp.MustCompile(`(?i)<response>(.*?)</response>`)
+	matches := re.FindAllStringSubmatch(s, -1)
+
+	for _, m := range matches {
+		block := m[1]
+		if strings.Contains(strings.ToLower(block), "calendar-description") {
+			hrefRe := regexp.MustCompile(`(?i)<href[^>]*>([^<]+)</href>`)
+			hm := hrefRe.FindStringSubmatch(block)
+			if len(hm) > 1 && hm[1] != calHome {
+				return hm[1]
+			}
+		}
+	}
+	return ""
+}
+
+func extractFirstCalendarHref(xmlData []byte) string {
+	s := string(xmlData)
+	re := regexp.MustCompile(`(?i)<response>(.*?)</response>`)
+	matches := re.FindAllStringSubmatch(s, -1)
+
+	// Find a href that looks like a calendar (contains UUIDs)
+	uuidRe := regexp.MustCompile(`[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}`)
+	for _, m := range matches {
+		block := m[1]
+		hrefRe := regexp.MustCompile(`(?i)<href[^>]*>([^<]+)</href>`)
+		hm := hrefRe.FindStringSubmatch(block)
+		if len(hm) > 1 && uuidRe.MatchString(hm[1]) {
+			return hm[1]
+		}
+	}
+	return ""
+}
+
+func parseEventsXML(xmlData string) []EventInfo {
+	var events []EventInfo
+
+	re := regexp.MustCompile(`(?i)<response>(.*?)</response>`)
+	matches := re.FindAllStringSubmatch(xmlData, -1)
+
+	for _, m := range matches {
+		block := m[1]
+
+		href := extractTagCI(block, "href")
+		etag := extractTagCI(block, "getetag")
+		icalData := extractTagCI(block, "calendar-data")
+
+		if icalData == "" {
+			continue
+		}
+
+		uid := extractICalUID(icalData)
+		if uid == "" {
+			continue
+		}
+
+		events = append(events, EventInfo{
+			UID:      uid,
+			Href:     href,
+			ETag:     strings.Trim(etag, "\""),
+			ICalData: icalData,
+		})
+	}
+
+	return events
+}
+
+func extractTagCI(xml, tag string) string {
+	re := regexp.MustCompile(fmt.Sprintf(`(?i)<%s[^>]*>([^<]*)</%s>`, tag, tag))
+	m := re.FindStringSubmatch(xml)
+	if len(m) > 1 {
+		return m[1]
+	}
+
+	// Try with namespace prefix
+	re2 := regexp.MustCompile(fmt.Sprintf(`(?i)<[^>]*:%s[^>]*>([^<]*)</[^>]*:%s>`, tag, tag))
+	m2 := re2.FindStringSubmatch(xml)
+	if len(m2) > 1 {
+		return m2[1]
+	}
+
+	return ""
+}
+
+func extractICalUID(icalData string) string {
+	re := regexp.MustCompile(`UID:([^\r\n]+)`)
+	m := re.FindStringSubmatch(icalData)
+	if len(m) > 1 {
+		return strings.TrimSpace(m[1])
+	}
+	return ""
+}
+
+func trunc(s string, n int) string {
+	if len(s) <= n {
+		return s
+	}
+	return s[:n]
+}

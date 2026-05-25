@@ -1,0 +1,16 @@
+[Unit]
+Description=WPS CalDAV Proxy
+After=network.target
+
+[Service]
+Type=simple
+User=admin
+WorkingDirectory=/opt/wps-caldav-proxy
+ExecStart=/opt/wps-caldav-proxy/wps-caldav-proxy -config /opt/wps-caldav-proxy/config.yaml
+Restart=always
+RestartSec=10
+StandardOutput=append:/opt/wps-caldav-proxy/logs/proxy.log
+StandardError=append:/opt/wps-caldav-proxy/logs/proxy.log
+
+[Install]
+WantedBy=multi-user.target

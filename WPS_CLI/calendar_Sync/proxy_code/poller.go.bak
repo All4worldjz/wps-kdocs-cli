@@ -1,0 +1,94 @@
+package poller
+
+import (
+	"log"
+	"time"
+
+	"wps-caldav-proxy/internal/cache"
+	"wps-caldav-proxy/internal/wpsclient"
+)
+
+type Poller struct {
+	wpsClient *wpsclient.Client
+	cache     *cache.Cache
+	interval  time.Duration
+	stopCh    chan struct{}
+}
+
+func New(wpsClient *wpsclient.Client, c *cache.Cache, intervalSec int) *Poller {
+	return &Poller{
+		wpsClient: wpsClient,
+		cache:     c,
+		interval:  time.Duration(intervalSec) * time.Second,
+		stopCh:    make(chan struct{}),
+	}
+}
+
+func (p *Poller) Start() {
+	log.Printf("[Poller] Starting with interval %v", p.interval)
+
+	// Run immediately on start
+	p.poll()
+
+	ticker := time.NewTicker(p.interval)
+	defer ticker.Stop()
+
+	for {
+		select {
+		case <-ticker.C:
+			p.poll()
+		case <-p.stopCh:
+			log.Printf("[Poller] Stopped")
+			return
+		}
+	}
+}
+
+func (p *Poller) Stop() {
+	close(p.stopCh)
+}
+
+func (p *Poller) poll() {
+	start := time.Now()
+
+	// Fetch events from WPS
+	events, err := p.wpsClient.FetchEvents()
+	if err != nil {
+		log.Printf("[Poller] ERROR fetching events: %v", err)
+		return
+	}
+
+	log.Printf("[Poller] Fetched %d events from WPS", len(events))
+
+	// Convert to cache events
+	cacheEvents := make([]cache.Event, len(events))
+	for i, ev := range events {
+		cacheEvents[i] = cache.Event{
+			UID:      ev.UID,
+			Href:     ev.Href,
+			ETag:     ev.ETag,
+			ICalData: ev.ICalData,
+		}
+	}
+
+	// Update cache (atomically detects changes + recalculates ctag)
+	created, updated, deleted, err := p.cache.UpdateEvents(cacheEvents)
+	if err != nil {
+		log.Printf("[Poller] ERROR updating cache: %v", err)
+		return
+	}
+
+	elapsed := time.Since(start)
+
+	if len(created)+len(updated)+len(deleted) > 0 {
+		log.Printf("[Poller] Sync complete: +%d ~%d -%d (ctag=%s, rev=%d, took %v)",
+			len(created), len(updated), len(deleted),
+			p.cache.StableCtag()[:16], p.cache.Revision(), elapsed)
+	} else {
+		log.Printf("[Poller] No changes (took %v)", elapsed)
+	}
+}
+
+func (p *Poller) RunOnce() {
+	p.poll()
+}
