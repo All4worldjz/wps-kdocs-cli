@@ -26,6 +26,15 @@ MAX_CONCURRENT = 4            # 并发下载线程数
 
 # ---- CLI 配置 ----
 CLI_BIN = "wps365-cli"
+KDOCS_CLI_BIN = "kdocs-cli"
+
+# ---- 内容备份配置 ----
+CONTENT_BACKUP_ENABLED = True       # 是否启用文档内容备份（Markdown）
+CONTENT_BACKUP_FORMATS = {".docx", ".doc", ".pdf", ".xlsx", ".xls", ".ksheet", ".dbt", ".otl"}
+CONTENT_BACKUP_DIR = BACKUP_DIR / "_content_backup"  # 内容备份目录
+
+# ---- OTL 备份配置 ----
+OTL_CONTENT_BACKUP_ENABLED = True   # 使用 kdocs-cli read-file 备份 OTL 内容
 
 # ---- 环境变量覆盖 ----
 BACKUP_DIR = Path(os.environ.get("WPS_BACKUP_DIR", str(BACKUP_DIR)))

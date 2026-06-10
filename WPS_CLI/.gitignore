@@ -17,3 +17,13 @@ __pycache__/
 
 # WPS CLI tool artifacts
 com.wps.backup.plist
+
+# Agent/IDE settings
+.qwen/
+
+# calendar_Sync sensitive data
+calendar_Sync/.antigravitycli/
+calendar_Sync/.venv/
+calendar_Sync/configs/config.yaml
+calendar_Sync/proxy_code/config.yaml
+calendar_Sync/temp/

@@ -19,6 +19,7 @@ from concurrent.futures import ThreadPoolExecutor, as_completed
 from . import config
 from .state import BackupState, FileSnapshot
 from .logger import setup_logger
+from . import kdocs_engine
 
 logger = setup_logger()
 
@@ -45,13 +46,18 @@ class BackupResult:
     updated: int = 0
     skipped: int = 0
     failed: int = 0
+    content_backed_up: int = 0   # kdocs-cli 内容备份成功
+    content_failed: int = 0      # kdocs-cli 内容备份失败
     errors: list = field(default_factory=list)
 
     def to_dict(self):
         return {
             "total": self.total, "new": self.new,
             "updated": self.updated, "skipped": self.skipped,
-            "failed": self.failed, "errors": self.errors,
+            "failed": self.failed,
+            "content_backed_up": self.content_backed_up,
+            "content_failed": self.content_failed,
+            "errors": self.errors,
         }
 
 # ============================================================
@@ -232,9 +238,11 @@ def _download_chunk(url: str, start: int, end: int, token: str) -> Optional[byte
 
 def download_with_resume(url: str, dest: Path, token: str,
                           max_retries: int = 5,
-                          chunk_size: int = 10 * 1024 * 1024) -> tuple[bool, int, str]:
+                          chunk_size: int = 10 * 1024 * 1024,
+                          url_refresher=None) -> tuple[bool, int, str]:
     """
     带断点续传和重试的下载
+    支持 url_refresher 回调：在 chunk 下载遇到 401/403/405 时刷新 URL
     返回: (成功, 文件大小, hash|error_msg)
     """
     dest.parent.mkdir(parents=True, exist_ok=True)
@@ -265,7 +273,7 @@ def download_with_resume(url: str, dest: Path, token: str,
                     total_size = int(resp.headers.get("Content-Length", 0))
                     resp.read()  # 消费掉响应体
 
-            # 下载主体（分段续传 + 逐块重试）
+            # 下载主体（分段续传 + 逐块重试 + 中途 URL 刷新）
             bytes_downloaded = resume_offset
             mode = "ab" if resume_offset > 0 else "wb"
 
@@ -283,6 +291,16 @@ def download_with_resume(url: str, dest: Path, token: str,
                                 bytes_downloaded += len(chunk)
                                 chunk_ok = True
                                 break
+                        except urllib.error.HTTPError as e:
+                            # 签名 URL 中途过期：尝试刷新 URL 后继续
+                            if e.code in (401, 403, 405) and url_refresher:
+                                new_url = url_refresher()
+                                if new_url:
+                                    url = new_url
+                                    logger.debug(f"      下载中途刷新 URL，从 {format_size(bytes_downloaded)} 继续")
+                                    continue  # 用新 URL 重试当前 chunk
+                            if chunk_attempt < 2:
+                                time.sleep(1 * (2 ** chunk_attempt))
                         except Exception:
                             if chunk_attempt < 2:
                                 time.sleep(1 * (2 ** chunk_attempt))
@@ -296,6 +314,8 @@ def download_with_resume(url: str, dest: Path, token: str,
                     raise IOError(f"Size mismatch: {bytes_downloaded} vs {total_size}")
 
             # 原子写入
+            if not tmp.exists():
+                raise IOError("临时文件在写入后丢失")
             tmp.replace(dest)
             file_hash = compute_hash(dest)
             return True, bytes_downloaded, file_hash
@@ -326,29 +346,53 @@ def download_with_resume(url: str, dest: Path, token: str,
         tmp.unlink(missing_ok=True)
     return False, 0, f"超过最大重试次数 ({max_retries})"
 
-def _simple_download(url: str, dest: Path, token: str) -> tuple[bool, int, str]:
-    """小文件（<10MB）简单下载"""
-    try:
-        headers = {"User-Agent": "WPS-Backup/3.0"}
-        if token:
-            headers["Authorization"] = f"Bearer {token}"
+def _simple_download(url: str, dest: Path, token: str,
+                        max_retries: int = 3) -> tuple[bool, int, str]:
+    """小文件简单下载（流式写入 + 重试）"""
+    dest.parent.mkdir(parents=True, exist_ok=True)
+    tmp = dest.with_suffix(dest.suffix + ".tmp")
 
-        req = urllib.request.Request(url, headers=headers)
-        with urllib.request.urlopen(req, timeout=config.DOWNLOAD_TIMEOUT) as resp:
-            content = resp.read()
+    for attempt in range(max_retries):
+        try:
+            headers = {"User-Agent": "WPS-Backup/3.0"}
+            if token:
+                headers["Authorization"] = f"Bearer {token}"
 
-        dest.parent.mkdir(parents=True, exist_ok=True)
-        tmp = dest.with_suffix(dest.suffix + ".tmp")
-        with open(tmp, "wb") as f:
-            f.write(content)
-        tmp.replace(dest)  # 原子写入
+            req = urllib.request.Request(url, headers=headers)
+            with urllib.request.urlopen(req, timeout=config.DOWNLOAD_TIMEOUT) as resp:
+                with open(tmp, "wb") as f:
+                    while True:
+                        block = resp.read(65536)
+                        if not block:
+                            break
+                        f.write(block)
 
-        file_hash = compute_hash(dest)
-        return True, len(content), file_hash
-    except urllib.error.HTTPError as e:
-        return False, 0, f"HTTP {e.code}"
-    except Exception as e:
-        return False, 0, str(e)[:200]
+            if not tmp.exists():
+                return False, 0, "临时文件在写入后丢失"
+            tmp.replace(dest)  # 原子写入
+
+            file_hash = compute_hash(dest)
+            return True, dest.stat().st_size, file_hash
+
+        except urllib.error.HTTPError as e:
+            if e.code == 416 and tmp.exists():
+                tmp.replace(dest)
+                return True, dest.stat().st_size, compute_hash(dest)
+            if not _is_retryable(e):
+                return False, 0, f"HTTP {e.code} (不可重试)"
+        except Exception as e:
+            if not _is_retryable(e):
+                if tmp.exists():
+                    tmp.unlink(missing_ok=True)
+                return False, 0, str(e)[:200]
+
+        wait = min(2 ** attempt, 10)
+        logger.debug(f"      简单下载重试 {attempt+1}/{max_retries}，等待 {wait}s...")
+        time.sleep(wait)
+
+    if tmp.exists():
+        tmp.unlink(missing_ok=True)
+    return False, 0, f"超过最大重试次数 ({max_retries})"
 
 # ============================================================
 # 备份引擎（多线程版）
@@ -361,6 +405,11 @@ class BackupEngine:
         self.workers = workers or config.MAX_CONCURRENT
         self._result_lock = threading.Lock()
         self._url_lock = threading.Lock()
+        self.kdocs_available = kdocs_engine.check_kdocs_cli_available()
+        if self.kdocs_available:
+            logger.info(f"   🔧 kdocs-cli 已就绪 ({kdocs_engine.get_kdocs_version()})")
+        else:
+            logger.info("   ⏭️  kdocs-cli 不可用，跳过内容备份")
 
     # ---- 多线程下载 worker ----
 
@@ -450,7 +499,10 @@ class BackupEngine:
             # 下载（断点续传用于大文件）
             t0 = time.time()
             if rf.size > 10 * 1024 * 1024:  # >10MB 用断点续传
-                ok, size, file_hash = download_with_resume(url, local_path, self.token)
+                ok, size, file_hash = download_with_resume(
+                    url, local_path, self.token,
+                    url_refresher=lambda: self._get_download_url_throttled(rf.drive_id, rf.file_id)
+                )
             else:
                 ok, size, file_hash = _simple_download(url, local_path, self.token)
 
@@ -472,10 +524,6 @@ class BackupEngine:
                 break
 
         if final_ok:
-            elapsed = time.time() - (start_time if start_time else time.time())
-            # 用实际下载耗时计算速度
-            # 重新计算：以 final_size 为准
-            # 速度计算在日志中不重要，简化处理
             snap = FileSnapshot(
                 file_id=rf.file_id, drive_id=rf.drive_id,
                 name=name, size=final_size, mtime=rf.mtime,
@@ -484,12 +532,36 @@ class BackupEngine:
                 backed_up_at="",
             )
             self.state.mark_backed_up(snap)
+
+            # 内容备份（kdocs-cli）
+            content_ok = False
+            if (config.CONTENT_BACKUP_ENABLED and self.kdocs_available and
+                    kdocs_engine.is_content_readable(Path(name).suffix)):
+                try:
+                    content_result = kdocs_engine.backup_file_content(
+                        file_id=rf.file_id, name=name,
+                        drive_id=rf.drive_id, drive_name=rf.drive_name,
+                    )
+                    if content_result.success:
+                        content_ok = True
+                        with self._result_lock:
+                            result.content_backed_up += 1
+                    else:
+                        with self._result_lock:
+                            result.content_failed += 1
+                        logger.debug(f"   [{index}/{total}] ⚠️ 内容备份失败: {name} — {content_result.error}")
+                except Exception as e:
+                    with self._result_lock:
+                        result.content_failed += 1
+                    logger.debug(f"   [{index}/{total}] ⚠️ 内容备份异常: {name} — {e}")
+
             with self._result_lock:
                 if is_new:
                     result.new += 1
                 else:
                     result.updated += 1
-            logger.info(f"   [{index}/{total}] ✅ {name} ({format_size(final_size)})")
+            content_tag = " 📝" if content_ok else ""
+            logger.info(f"   [{index}/{total}] ✅ {name} ({format_size(final_size)}){content_tag}")
         else:
             self.state.mark_failed(
                 rf.drive_id, rf.file_id, final_hash,
@@ -596,7 +668,13 @@ class BackupEngine:
                     with self._result_lock:
                         result.failed += 1
 
-        # Phase 5: 汇总
+        # Phase 5: 内容备份汇总（dry-run 模式下跳过）
+        if not dry_run and config.CONTENT_BACKUP_ENABLED and self.kdocs_available:
+            logger.info(f"   📝 内容备份: {result.content_backed_up} 成功 | {result.content_failed} 失败")
+            if result.content_backed_up > 0:
+                logger.info(f"   📁 内容目录: {config.CONTENT_BACKUP_DIR}")
+
+        # Phase 6: 汇总
         elapsed = time.time() - start
         total_size = sum(
             s.size for s in self.state.snapshots.values()
@@ -604,6 +682,8 @@ class BackupEngine:
         logger.info(f"\n{'='*60}")
         logger.info(f"📊 备份完成 ({elapsed:.1f}s)")
         logger.info(f"   🆕 新增: {result.new} | 🔄 更新: {result.updated} | ⏭️ 跳过: {result.skipped} | ❌ 失败: {result.failed}")
+        if result.content_backed_up > 0:
+            logger.info(f"   📝 内容备份: {result.content_backed_up} 个文件")
         logger.info(f"   💾 总计: {len(self.state.snapshots)} 文件, {format_size(total_size)}")
         logger.info(f"   📁 {config.BACKUP_DIR}")
         logger.info(f"{'='*60}")

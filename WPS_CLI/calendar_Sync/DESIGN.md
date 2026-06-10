@@ -420,7 +420,7 @@ Process Manager: systemd
 ```yaml
 wps:
   server_url: "https://caldav.wps.cn"
-  username: "u_xQCBlhQAnuSvdY"
+  username: "YOUR_WPS_CALDAV_USERNAME"
   password: "..."
 
 proxy:

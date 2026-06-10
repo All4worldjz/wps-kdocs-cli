@@ -1,10 +1,10 @@
 """
-OTL 专项备份引擎
-策略：
-1. 通过 WPS CLI API 获取所有 .otl 文件元数据（Drive API 不支持直接下载 .otl）
-2. 从 WPS Office 本地云同步缓存中提取最近打开过的 .otl 文件
-3. 通过文件名+大小+时间的匹配，将缓存文件重命名为原始文件名归档
-4. 对于未缓存的 .otl 文件，生成 kdocs.cn 导出链接清单
+OTL 专项备份引擎 v4.0
+混合策略：
+1. 通过 wps365-cli API 获取所有 .otl 文件元数据
+2. 【新增】通过 kdocs-cli read-file 将 OTL 内容转为 Markdown 备份（无需本地缓存）
+3. 【保留】从 WPS Office 本地云同步缓存中提取 .otl 原始文件（作为补充）
+4. 对于仍无法备份的 .otl 文件，生成 kdocs.cn 导出链接清单
 """
 
 import json
@@ -21,6 +21,7 @@ from dataclasses import dataclass, field, asdict
 
 from . import config
 from .logger import setup_logger
+from . import kdocs_engine
 
 logger = setup_logger()
 
@@ -29,6 +30,7 @@ WPS_CACHE_DIR = Path.home() / "Library/Containers/com.kingsoft.wpsoffice.mac/Dat
 RENT_FILE = "rectfile2.xml"
 
 OTL_BACKUP_DIR = config.BACKUP_DIR / "_otl_files"
+OTL_CONTENT_DIR = config.BACKUP_DIR / "_otl_content"
 OTL_CONVERTED_DIR = config.BACKUP_DIR / "_otl_converted_docx"
 OTL_STATE_FILE = config.STATE_DIR / "_otl_state.json"
 
@@ -38,7 +40,7 @@ class OTLBackupState:
 
     def __init__(self, state_file: Path = OTL_STATE_FILE):
         self.state_file = state_file
-        self.records: dict[str, dict] = {}  # file_id -> {mtime, path, backed_up_at}
+        self.records: dict[str, dict] = {}  # file_id -> {mtime, path, backed_up_at, content_path}
         self._load()
 
     def _load(self):
@@ -63,10 +65,11 @@ class OTLBackupState:
             return True
         return remote_mtime > rec.get("mtime", 0)
 
-    def mark_backed_up(self, file_id: str, mtime: int, local_path: str):
+    def mark_backed_up(self, file_id: str, mtime: int, local_path: str = "", content_path: str = ""):
         self.records[file_id] = {
             "mtime": mtime,
             "path": local_path,
+            "content_path": content_path,
             "backed_up_at": time.strftime("%Y-%m-%d %H:%M:%S"),
         }
         self._save()
@@ -109,9 +112,12 @@ class CacheFileEntry:
 @dataclass
 class OTLBackupResult:
     total: int = 0
-    cached: int = 0       # 缓存中命中的文件
-    copied: int = 0       # 成功从缓存复制的文件
-    not_cached: int = 0   # 未在缓存中的文件（需手动导出）
+    content_backed_up: int = 0   # kdocs-cli read-file 成功备份
+    content_skipped: int = 0      # 内容已是最新
+    content_failed: int = 0       # 内容备份失败
+    cached: int = 0               # 缓存中命中的文件
+    copied: int = 0               # 成功从缓存复制的文件
+    not_cached: int = 0           # 未在缓存中的文件
     errors: list = field(default_factory=list)
 
 
@@ -218,13 +224,12 @@ def _recurse_otl(drive_id: str, drive_name: str, parent_id: str,
                 _recurse_otl(drive_id, drive_name, item["id"], result)
 
 
-# ---- WPS Office 本地缓存解析 ----
+# ---- WPS Office 本地缓存解析（保留作为补充） ----
 
 def find_cache_root() -> Optional[Path]:
     """查找 WPS Office 云同步缓存根目录"""
     if not WPS_CACHE_DIR.exists():
         return None
-    # 找到用户 ID 子目录
     for d in WPS_CACHE_DIR.iterdir():
         if d.is_dir() and d.name.startswith("."):
             kdocs = d / "kdocsfile"
@@ -262,10 +267,7 @@ def parse_rectfile2(cache_root: Path) -> list[CacheFileEntry]:
 
 
 def list_cache_otl_files(cache_root: Path) -> dict[str, Path]:
-    """
-    列出缓存中所有 kdocsfile 目录及其 content.otl 路径
-    返回: {directory_name: content.otl_path}
-    """
+    """列出缓存中所有 kdocsfile 目录及其 content.otl 路径"""
     result = {}
     kdocs_dir = cache_root / "kdocsfile"
     if not kdocs_dir.exists():
@@ -280,46 +282,17 @@ def list_cache_otl_files(cache_root: Path) -> dict[str, Path]:
     return result
 
 
-def _get_dest_path(api_file: OTLFileInfo, state: "OTLBackupState" = None) -> Path:
-    """生成备份目标路径，处理重名"""
-    # 如果状态中有记录且路径仍有效，复用原路径
-    if state:
-        rec = state.records.get(api_file.file_id)
-        if rec:
-            old_path = Path(rec["path"])
-            if old_path.exists():
-                return old_path
-
-    base = OTL_BACKUP_DIR / api_file.safe_name
-    if not base.exists():
-        return base
-    # 如果已存在同名文件（但不是当前文件的历史备份），追加 file_id 前 8 位区分
-    stem = base.stem
-    suffix = base.suffix
-    unique_name = f"{stem}_{api_file.file_id[:8]}{suffix}"
-    return OTL_BACKUP_DIR / unique_name
-
-
 def match_cache_to_api(
     api_files: list[OTLFileInfo],
     cache_entries: list[CacheFileEntry],
     cache_otl_map: dict[str, Path],
 ) -> list[tuple[OTLFileInfo, Path]]:
-    """
-    将 API 文件列表与缓存文件进行匹配
-    匹配策略（按优先级）：
-    1. 精确文件名匹配（name → rectfile2.xml）+ 大小验证
-    2. 模糊大小匹配（size ± 15%）
-    返回: [(api_file_info, cache_content_otl_path), ...]
-    """
+    """将 API 文件列表与缓存文件进行匹配"""
     matched = []
-
-    # 构建缓存条目索引：按文件名
     cache_by_name: dict[str, CacheFileEntry] = {}
     for ce in cache_entries:
         cache_by_name[ce.name.lower()] = ce
 
-    # 对缓存中的每个 content.otl，获取文件大小和时间用于模糊匹配
     cache_file_stats: list[tuple[Path, int, int]] = []
     for dirname, otl_path in cache_otl_map.items():
         try:
@@ -328,14 +301,10 @@ def match_cache_to_api(
         except OSError:
             pass
 
-    # 按大小排序，便于优先匹配大小相近的
     cache_file_stats.sort(key=lambda x: x[1])
-
-    # 匹配
     used_cache_paths = set()
 
     def _find_best_size_match(api_file: OTLFileInfo, min_ratio: float, max_ratio: float) -> Optional[Path]:
-        """在剩余缓存文件中找大小最接近的"""
         if api_file.size <= 0:
             return None
         best_path = None
@@ -353,14 +322,9 @@ def match_cache_to_api(
 
     for api_file in api_files:
         matched_path = None
-
-        # Step 1: 精确文件名匹配（rectfile2.xml 中出现过该文件名）
         ce = cache_by_name.get(api_file.name.lower())
         if ce:
-            # 在剩余缓存中找大小最接近的（放宽到 0.5x ~ 2.0x，因为 .otl API size 不稳定）
             matched_path = _find_best_size_match(api_file, 0.5, 2.0)
-
-        # Step 2: 如果名字匹配未找到合适大小，尝试纯大小匹配
         if not matched_path:
             matched_path = _find_best_size_match(api_file, 0.85, 1.15)
 
@@ -371,22 +335,46 @@ def match_cache_to_api(
     return matched
 
 
-# ---- 备份主逻辑 ----
+def _get_dest_path(api_file: OTLFileInfo, state: "OTLBackupState" = None) -> Path:
+    """生成备份目标路径，处理重名"""
+    if state:
+        rec = state.records.get(api_file.file_id)
+        if rec:
+            old_path = Path(rec["path"])
+            if old_path.exists():
+                return old_path
+
+    base = OTL_BACKUP_DIR / api_file.safe_name
+    if not base.exists():
+        return base
+    stem = base.stem
+    suffix = base.suffix
+    unique_name = f"{stem}_{api_file.file_id[:8]}{suffix}"
+    return OTL_BACKUP_DIR / unique_name
+
+
+# ---- 备份主逻辑 v4.0 ----
 
 class OTLEngine:
-    """OTL 文件备份引擎"""
+    """OTL 文件备份引擎 v4.0 — 混合策略（kdocs-cli 内容 + 缓存实体）"""
 
     def __init__(self, target_drive_id: str = None):
         self.target_drive_id = target_drive_id
         OTL_BACKUP_DIR.mkdir(parents=True, exist_ok=True)
+        OTL_CONTENT_DIR.mkdir(parents=True, exist_ok=True)
         OTL_CONVERTED_DIR.mkdir(parents=True, exist_ok=True)
+        self.kdocs_available = kdocs_engine.check_kdocs_cli_available()
+        if self.kdocs_available:
+            logger.info(f"   🔧 kdocs-cli 已就绪 ({kdocs_engine.get_kdocs_version()})")
+        else:
+            logger.warning("   ⚠️  kdocs-cli 未认证，将回退到纯缓存模式")
 
     def run(self, dry_run: bool = False) -> OTLBackupResult:
         result = OTLBackupResult()
         start = time.time()
 
         logger.info("=" * 60)
-        logger.info("📋 OTL 专项备份 (WPS Office 缓存中转)")
+        logger.info("📋 OTL 专项备份 v4.0 (kdocs-cli 内容 + 缓存实体)")
 
         # ---- Phase 1: API 扫描 ----
         logger.info("📡 扫描 WPS Drive .otl 文件...")
@@ -403,84 +391,120 @@ class OTLEngine:
         result.total = len(api_files)
         logger.info(f"📊 远程共 {result.total} 个 .otl 文件")
 
-        # ---- Phase 2: 缓存扫描 ----
+        # ---- Phase 2: kdocs-cli 内容备份（新增） ----
+        if config.OTL_CONTENT_BACKUP_ENABLED and self.kdocs_available:
+            logger.info("📝 通过 kdocs-cli 备份 OTL 内容...")
+            state = OTLBackupState()
+            for api_file in api_files:
+                # 增量检查
+                if not state.needs_update(api_file.file_id, api_file.mtime):
+                    result.content_skipped += 1
+                    continue
+
+                if dry_run:
+                    logger.info(f"   🔍 [dry-run] {api_file.name}")
+                    result.content_backed_up += 1
+                    continue
+
+                # 使用 kdocs-cli 备份 OTL 内容
+                content_result = kdocs_engine.backup_otl_content(
+                    file_id=api_file.file_id,
+                    name=api_file.name,
+                    drive_id=api_file.drive_id,
+                    drive_name=api_file.drive_name,
+                    dry_run=dry_run,
+                )
+
+                if content_result.success:
+                    result.content_backed_up += 1
+                    # 更新状态
+                    state.mark_backed_up(
+                        api_file.file_id, api_file.mtime,
+                        content_path=content_result.content_path
+                    )
+                else:
+                    result.content_failed += 1
+                    logger.warning(f"   ⚠️  OTL 内容备份失败: {api_file.name} — {content_result.error}")
+
+            logger.info(f"   📝 内容备份: {result.content_backed_up} 成功 | {result.content_skipped} 跳过 | {result.content_failed} 失败")
+        else:
+            logger.info("   ⏭️  OTL 内容备份已禁用或 kdocs-cli 不可用")
+
+        # ---- Phase 3: 缓存扫描（保留作为补充） ----
         logger.info("🔍 扫描 WPS Office 本地缓存...")
         cache_root = find_cache_root()
         if not cache_root:
             logger.warning("⚠️  未找到 WPS Office 云同步缓存")
-            logger.warning("   请确保 WPS Office 已登录并打开过 .otl 文件")
-            result.not_cached = result.total
-            self._generate_export_guide(api_files, result)
-            return result
+            # 如果没有缓存且 kdocs-cli 也不可用，则生成导出指南
+            if not self.kdocs_available:
+                result.not_cached = result.total
+                self._generate_export_guide(api_files, result)
+                return result
+        else:
+            cache_entries = parse_rectfile2(cache_root)
+            cache_otl_map = list_cache_otl_files(cache_root)
+            logger.info(f"   缓存条目: {len(cache_entries)} | 实际文件: {len(cache_otl_map)}")
 
-        cache_entries = parse_rectfile2(cache_root)
-        cache_otl_map = list_cache_otl_files(cache_root)
-        logger.info(f"   缓存条目: {len(cache_entries)} | 实际文件: {len(cache_otl_map)}")
+            # Phase 4: 匹配并复制缓存文件
+            matched = match_cache_to_api(api_files, cache_entries, cache_otl_map)
+            matched_ids = {m[0].file_id for m in matched}
+            result.cached = len(matched_ids)
+            result.not_cached = result.total - result.cached
 
-        # ---- Phase 3: 匹配 ----
-        matched = match_cache_to_api(api_files, cache_entries, cache_otl_map)
-        matched_ids = {m[0].file_id for m in matched}
-        result.cached = len(matched_ids)
-        result.not_cached = result.total - result.cached
+            logger.info(f"📊 缓存匹配: {result.cached} 已缓存 | {result.not_cached} 未缓存")
 
-        logger.info(f"📊 匹配结果: {result.cached} 已缓存 | {result.not_cached} 需手动导出")
-
-        # ---- Phase 4: 复制缓存文件（增量） ----
-        if dry_run:
-            logger.info("🔍 Dry-run 模式：预览匹配结果")
-            for api_file, cache_path in matched:
-                logger.info(f"   📋 {api_file.name}")
-                logger.info(f"      缓存: {cache_path}")
-                logger.info(f"      大小: {api_file.size:,} bytes")
-                logger.info(f"      链接: {api_file.link_url}")
-            self._generate_export_guide(
-                [f for f in api_files if f.file_id not in matched_ids],
-                result,
-            )
-            return result
-
-        logger.info(f"📋 开始复制缓存文件到备份目录...")
-        state = OTLBackupState()
-        for api_file, cache_path in matched:
-            try:
-                dest = _get_dest_path(api_file, state)
-                # 增量检查：已备份且 mtime 未变更则跳过
-                if not state.needs_update(api_file.file_id, api_file.mtime):
-                    logger.info(f"   ⏭️  {api_file.name} (已是最新)")
-                    continue
-
-                shutil.copy2(str(cache_path), str(dest))
-                # 更新文件修改时间以匹配远程
-                if api_file.mtime > 0:
-                    os_time = api_file.mtime
+            if dry_run:
+                for api_file, cache_path in matched:
+                    logger.info(f"   📋 {api_file.name}")
+                    logger.info(f"      缓存: {cache_path}")
+            else:
+                state = OTLBackupState()
+                for api_file, cache_path in matched:
                     try:
-                        os.utime(str(dest), (os_time, os_time))
-                    except OSError as e:
-                        logger.warning(f"   ⚠️  无法设置时间戳 {api_file.name}: {e}")
-                state.mark_backed_up(api_file.file_id, api_file.mtime, str(dest))
-                result.copied += 1
-                logger.info(f"   ✅ {api_file.name} ({api_file.size:,} bytes)")
-            except Exception as e:
-                result.errors.append(f"{api_file.name}: {e}")
-                logger.error(f"   ❌ {api_file.name}: {e}")
+                        dest = _get_dest_path(api_file, state)
+                        if not state.needs_update(api_file.file_id, api_file.mtime):
+                            logger.info(f"   ⏭️  {api_file.name} (已是最新)")
+                            continue
+
+                        shutil.copy2(str(cache_path), str(dest))
+                        if api_file.mtime > 0:
+                            try:
+                                os.utime(str(dest), (api_file.mtime, api_file.mtime))
+                            except OSError as e:
+                                logger.warning(f"   ⚠️  无法设置时间戳 {api_file.name}: {e}")
+
+                        # 获取已有的 content_path（如果有）
+                        rec = state.records.get(api_file.file_id, {})
+                        content_path = rec.get("content_path", "")
+                        state.mark_backed_up(api_file.file_id, api_file.mtime, str(dest), content_path)
+                        result.copied += 1
+                        logger.info(f"   ✅ {api_file.name} (缓存复制)")
+                    except Exception as e:
+                        result.errors.append(f"{api_file.name}: {e}")
+                        logger.error(f"   ❌ {api_file.name}: {e}")
 
         # ---- Phase 5: 清理已不存在的文件记录 ----
         current_ids = {f.file_id for f in api_files}
+        state = OTLBackupState()
         state.prune_stale(current_ids)
 
-        # ---- Phase 6: 未缓存文件清单 ----
-        uncached = [f for f in api_files if f.file_id not in matched_ids]
-        self._generate_export_guide(uncached, result)
+        # ---- Phase 6: 未缓存文件清单（仅当 kdocs-cli 也失败时） ----
+        if not self.kdocs_available:
+            uncached = [f for f in api_files]
+            self._generate_export_guide(uncached, result)
 
         # ---- 汇总 ----
         elapsed = time.time() - start
         logger.info(f"\n{'='*60}")
         logger.info(f"📊 OTL 备份完成 ({elapsed:.1f}s)")
         logger.info(f"   📋 总数: {result.total}")
-        logger.info(f"   💾 从缓存复制: {result.copied}/{result.cached}")
-        logger.info(f"   ⏭️ 跳过: {result.cached - result.copied}")
-        logger.info(f"   🔗 需手动导出: {result.not_cached}")
-        logger.info(f"   📁 备份目录: {OTL_BACKUP_DIR}")
+        if config.OTL_CONTENT_BACKUP_ENABLED and self.kdocs_available:
+            logger.info(f"   📝 内容备份: {result.content_backed_up} 成功 | {result.content_skipped} 跳过 | {result.content_failed} 失败")
+        logger.info(f"   💾 缓存复制: {result.copied}/{result.cached}")
+        if result.not_cached > 0:
+            logger.info(f"   🔗 未缓存: {result.not_cached}")
+        logger.info(f"   📁 内容目录: {OTL_CONTENT_DIR}")
+        logger.info(f"   📁 缓存目录: {OTL_BACKUP_DIR}")
         logger.info(f"{'='*60}")
 
         return result

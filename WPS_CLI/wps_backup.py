@@ -27,6 +27,7 @@ from wps_backup.state import BackupState
 from wps_backup.scheduler import daemon_mode, generate_launchd_plist
 from wps_backup.logger import setup_logger
 from wps_backup.otl_engine import run_otl_backup
+from wps_backup import kdocs_engine
 
 logger = setup_logger()
 
@@ -71,29 +72,44 @@ def cmd_status(args):
     # OTL 状态
     from wps_backup.otl_engine import OTL_STATE_FILE
     otl_count = 0
+    otl_content_count = 0
     if OTL_STATE_FILE.exists():
         try:
             with open(OTL_STATE_FILE, "r", encoding="utf-8") as f:
                 otl_data = json.load(f)
             otl_count = len(otl_data)
             otl_last = max((v.get("backed_up_at", "") for v in otl_data.values()), default="从未")
+            # 统计有 content_path 的记录
+            otl_content_count = sum(1 for v in otl_data.values() if v.get("content_path"))
         except Exception:
             otl_count = 0
             otl_last = "从未"
     else:
         otl_last = "从未"
 
+    # kdocs-cli 状态
+    kdocs_ver = kdocs_engine.get_kdocs_version()
+    kdocs_auth = "✅ 已认证" if kdocs_engine.check_kdocs_cli_available() else "❌ 未认证"
+
+    # 内容备份统计
+    content_count = 0
+    if config.CONTENT_BACKUP_DIR.exists():
+        content_count = sum(1 for _ in config.CONTENT_BACKUP_DIR.rglob("*.md"))
+
     print(f"""
 📊 备份状态
-═══════════════════════════════════
+═══════════════════════════════════════════════════
   上次备份: {stats.get('last_backup_at') or '从未'}
   快照记录: {stats.get('snapshot_count', 0)} 个文件
   总大小:   {stats.get('total_size', 0):,} bytes
-  OTL 记录: {otl_count} 个文件 (上次: {otl_last})
+  OTL 记录: {otl_count} 个文件 (内容备份: {otl_content_count})
+  OTL 上次: {otl_last}
+  内容备份: {content_count} 个 Markdown 文件
+  kdocs-cli: {kdocs_ver} ({kdocs_auth})
   备份目录: {config.BACKUP_DIR}
   状态文件: {config.STATE_FILE}
   日志文件: {config.LOG_FILE}
-═══════════════════════════════════
+═══════════════════════════════════════════════════
     """)
     return 0
 
@@ -111,8 +127,15 @@ def cmd_log(args):
 
 
 def cmd_backup_otl(args):
-    """.otl 文件专项备份 — 从 WPS Office 本地缓存中转"""
-    result = run_otl_backup(dry_run=args.dry_run)
+    """.otl 文件专项备份 — kdocs-cli 内容 + WPS Office 本地缓存实体"""
+    # 临时禁用内容备份（如果 --no-content）
+    if args.no_content:
+        orig = config.OTL_CONTENT_BACKUP_ENABLED
+        config.OTL_CONTENT_BACKUP_ENABLED = False
+        result = run_otl_backup(dry_run=args.dry_run)
+        config.OTL_CONTENT_BACKUP_ENABLED = orig
+    else:
+        result = run_otl_backup(dry_run=args.dry_run)
     return 0 if len(result.errors) == 0 else 1
 
 
@@ -144,8 +167,9 @@ def main():
     sub.add_parser("install", help="生成 launchd 定时任务配置文件")
     sub.add_parser("status", help="查看备份状态")
 
-    p_otl = sub.add_parser("backup-otl", help=".otl 文件专项备份（缓存中转）")
+    p_otl = sub.add_parser("backup-otl", help=".otl 文件专项备份（kdocs-cli 内容 + 缓存实体）")
     p_otl.add_argument("--dry-run", action="store_true", help="仅预览匹配结果")
+    p_otl.add_argument("--no-content", action="store_true", help="跳过 kdocs-cli 内容备份")
 
     p_log = sub.add_parser("log", help="查看最近日志")
     p_log.add_argument("-n", type=int, default=20, help="行数")

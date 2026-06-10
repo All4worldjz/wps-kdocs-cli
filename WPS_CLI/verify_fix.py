@@ -18,30 +18,30 @@ def check_dry_run():
     print("=" * 60)
     print("验证 1: Dry-run 检查 .spt / .form 已被过滤")
     print("=" * 60)
+
+    # 记录执行前的日志行数，确保只检查本次 dry-run 产生的日志
+    log_path = Path("wps_backup_state/backup.log")
+    initial_line_count = len(log_path.read_text(encoding="utf-8").splitlines()) if log_path.exists() else 0
+
     engine = BackupEngine()
     result = engine.run(dry_run=True)
 
-    # 检查待下载列表中是否还有不可下载格式
-    # 由于 BackupResult 不保留文件列表，我们直接扫描日志
-    import logging
-    from wps_backup.logger import setup_logger
-
-    # 重新读取日志最后几行
-    log_path = Path("wps_backup_state/backup.log")
+    # 只扫描本次 dry-run 新增的日志行
     lines = log_path.read_text(encoding="utf-8").splitlines()
-    dry_run_lines = []
+    dry_run_lines = lines[initial_line_count:]
     in_dry_run = False
-    for line in lines:
+    filtered_lines = []
+    for line in dry_run_lines:
         if "🔍 Dry-run 模式" in line:
             in_dry_run = True
-            dry_run_lines = []
+            filtered_lines = []
         if in_dry_run:
-            dry_run_lines.append(line)
+            filtered_lines.append(line)
         if "开始 OTL" in line and in_dry_run:
             break
 
     bad_exts = []
-    for line in dry_run_lines:
+    for line in filtered_lines:
         if "🆕" in line or "🔄" in line:
             name = line.split("🆕 ")[-1].split("🔄 ")[-1].strip()
             ext = Path(name).suffix.lower()
