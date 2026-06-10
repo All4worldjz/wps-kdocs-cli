@@ -1,8 +1,8 @@
 # WPS CLI 工具集 — 交接文档 (Handoff)
 
-**版本:** 2.0
+**版本:** 2.1
 **日期:** 2026-06-09
-**状态:** 生产运行中，kdocs-cli 集成升级完成
+**状态:** 生产运行中，kdocs-cli 集成升级完成，代码已推送 GitHub
 **交接人:** Kimi Code CLI
 **接收人:** 下一位接力开发的大模型 Agent
 
@@ -12,14 +12,14 @@
 
 ```
 WPS 云盘差量备份        ████████████████████░░  约 99% 完成
-├── 已备份文件:         906 / ~918 (状态文件记录)
+├── 已备份文件:         906 / ~919 (状态文件记录)
 ├── 已备份大小:         ~25.9 GB
 ├── 历史错误:           已大幅收敛
 │   ├── HTTP 405:       已修复 (加入重试 + URL 限流)
 │   ├── 无下载地址:      已修复 (扫描阶段过滤 .otl/.spt/.form)
 │   ├── tmp 竞争丢失:     已修复 (file_id 路径隔离)
 │   └── 分片下载失败:     已修复 (URL 刷新重试)
-├── 待下载文件 (上次 dry-run): 12 个 (新增 docx/pdf/pptx)
+├── 待下载文件 (上次 dry-run): 13 个 (新增 docx/pdf/pptx)
 │
 OTL 专项备份            ████████████████████░░  约 84% 完成 (内容层)
 ├── 远程 .otl 总数:      201 个
@@ -30,7 +30,8 @@ OTL 专项备份            █████████████████�
 └── 导出指南:             wps_backup_data/_otl_files/EXPORT_GUIDE.md
 
 共享文件目录生成        ✅ 可用（手动运行）
-日历 CalDAV 代理        📋 见 calendar_Sync/HANDOFF.md
+日历 CalDAV 代理        📋 见 calendar_Sync/AGENTS.md 和 DESIGN.md
+代码仓库                ✅ 已推送 GitHub
 ```
 
 ---
@@ -57,6 +58,10 @@ OTL 专项备份            █████████████████�
 | `wps_backup/otl_engine.py` | **重写 v4.0** | 新增 kdocs-cli 内容备份路径；保留缓存实体备份作为补充 |
 | `wps_backup/engine.py` | 修改 | 下载成功后自动触发 kdocs-cli 内容备份；新增 `content_backed_up/content_failed` 统计 |
 | `wps_backup.py` | 修改 | `status` 显示 kdocs-cli 版本/认证状态和内容备份统计；`backup-otl` 新增 `--no-content` 参数 |
+| `docs/kdocs-cli-setup.md` | **新增** | wps365-cli + kdocs-cli 完整安装配置与使用指南 v2.0 |
+| `ADP.md` | **更新 v2.0** | 补充混合架构决策、内容备份设计、安全清理措施 |
+| `README.md` | **新增** | 项目概览与快速开始 |
+| `.gitignore` | 修改 | 排除敏感路径（.qwen, .antigravitycli, temp/, configs/） |
 
 ### 2.3 架构对比
 
@@ -78,12 +83,13 @@ OTL 专项备份            █████████████████�
 
 | 验证项 | 结果 |
 |--------|------|
-| 语法检查 (8 个文件) | ✅ 全部通过 |
+| 语法检查 (全部 Python 文件) | ✅ 全部通过 |
 | kdocs-cli 认证 | ✅ v2.5.8 已认证 |
 | OTL 内容备份 (169 文件 live) | ✅ 成功，256.7s |
 | 主引擎 live 备份 (2 文件) | ✅ 成功，36.7s |
 | `verify_fix.py` 回归测试 | ✅ 全部验证通过 |
 | `wps_backup.py status` | ✅ 显示完整 kdocs 状态 |
+| GitHub 推送 | ✅ 已推送，无敏感数据泄露 |
 
 ---
 
@@ -114,6 +120,7 @@ $ kdocs-cli auth status
 | 测试框架 | 中 | 当前仅脚本化验证，无 pytest/unittest。新增功能时回归成本较高。 |
 | 备份通知机制 | 低 | 失败时无 webhook/邮件/飞书通知，需手动查看日志。 |
 | .otl.link 文件处理 | 低 | 6 个 `.otl.link` 快捷方式无法读取内容，当前标记为失败。可考虑改为"跳过"而非"失败"。 |
+| 内容备份增量 | 低 | 当前每次都会调用 `read-file`，可考虑在 `state.py` 中增加 `content_mtime` 字段实现内容层增量。 |
 
 ### 3.3 风险项
 
@@ -123,6 +130,7 @@ $ kdocs-cli auth status
 | kdocs-cli Token 过期 | OTL 内容备份和内容备份层失效 | Token 有效期约 1 年，过期后执行 `kdocs-cli auth login` |
 | wps365-cli 与 kdocs-cli 双认证维护 | 操作复杂度增加 | `status` 命令同时显示两者状态，便于监控 |
 | WPS API 限流策略变化 | 405/429 可能以更激进的方式出现 | 已增加 URL 限流和 405 重试 |
+| 敏感数据泄露 | GitHub 仓库暴露凭证 | 已清理所有硬编码凭证，.gitignore 已配置，推送前验证通过 |
 
 ---
 
@@ -171,6 +179,7 @@ $ kdocs-cli auth status
 - `backup_otl_content()` — OTL 专用内容备份
 - `search_files()` — 文件名/全文搜索
 - `check_kdocs_cli_available()` — 认证状态检查
+- `get_kdocs_version()` — 版本获取
 
 **`wps_backup/otl_engine.py` v4.0** — 混合 OTL 备份：
 - Phase 1: API 扫描（wps365-cli）
@@ -197,6 +206,9 @@ python3 wps_backup.py log -n 50
 
 # 查看状态（含 kdocs-cli 信息）
 python3 wps_backup.py status
+
+# 验证修复
+python3 verify_fix.py
 ```
 
 ### 5.3 修改时的注意事项
@@ -205,6 +217,10 @@ python3 wps_backup.py status
 2. **内容备份是"锦上添花"** — 主备份流程（实体文件下载）不应依赖 kdocs-cli 可用。`engine.py` 中内容备份失败不影响主流程。
 3. **YAML frontmatter 格式** — 内容备份的 Markdown 文件包含固定 frontmatter，修改格式可能影响下游消费。
 4. **kdocs-cli 升级限制** — 不要依赖 `kdocs-cli upgrade` 自动工作，当前网络环境会失败。
+5. **敏感数据清理** — 新增测试脚本或配置文件时，确保不含硬编码凭证。推送前运行凭证扫描：
+   ```bash
+   grep -rn "password\|secret\|token" --include="*.py" --include="*.yaml" --include="*.json" .
+   ```
 
 ---
 
@@ -220,7 +236,8 @@ python3 wps_backup.py status
 | 备份数据目录 | `wps_backup_data/` |
 | 状态/日志目录 | `wps_backup_state/` |
 | 定时任务 | `com.wps.backup.plist` (launchd) |
-| Git 状态 | 未提交（修改在 working tree 中） |
+| GitHub 仓库 | https://github.com/All4worldjz/wps-kdocs-cli |
+| Git 状态 | 已推送，main 分支同步 |
 
 ---
 
@@ -228,10 +245,13 @@ python3 wps_backup.py status
 
 | 文档 | 说明 |
 |------|------|
+| `README.md` | 项目概览与快速开始 |
 | `AGENTS.md` | 项目背景、架构、开发规范 |
-| `ADP.md` | 架构决策记录 |
-| `docs/kdocs-cli-setup.md` | **WPS CLI 与 kdocs-cli 安装配置与使用指南 v2.0**（本次新增） |
-| `calendar_Sync/HANDOFF.md` | CalDAV 代理子项目交接 |
+| `ADP.md` | 架构决策记录 v2.0 |
+| `HANDOFF.md` | 本文档 — 当前状态与交接事项 |
+| `docs/kdocs-cli-setup.md` | **WPS CLI 与 kdocs-cli 安装配置与使用指南 v2.0** |
+| `calendar_Sync/AGENTS.md` | CalDAV 代理子项目说明 |
+| `calendar_Sync/DESIGN.md` | CalDAV 代理设计文档 |
 
 ### 7.1 docs/kdocs-cli-setup.md 文档内容
 
@@ -274,9 +294,14 @@ python3 wps_backup.py status
 - [x] OTL 内容备份验证通过 (169/201)
 - [x] 主引擎内容备份层验证通过
 - [x] `verify_fix.py` 回归测试通过
-- [x] HANDOFF.md 已更新（本文档 v2.0）
-- [x] `docs/kdocs-cli-setup.md` 已撰写（v2.0，含 wps365-cli + kdocs-cli 完整指南）
-- [ ] 建议执行 `git add -A && git commit` 保存当前修改
+- [x] ADP.md 已更新（v2.0）
+- [x] HANDOFF.md 已更新（v2.1）
+- [x] README.md 已创建
+- [x] `docs/kdocs-cli-setup.md` 已撰写（v2.0）
+- [x] 敏感数据已清理（凭证、本地路径、IDE 配置）
+- [x] `.gitignore` 已更新排除敏感路径
+- [x] 代码已推送 GitHub（https://github.com/All4worldjz/wps-kdocs-cli）
+- [x] GitHub 仓库无敏感数据泄露
 
 ---
 
