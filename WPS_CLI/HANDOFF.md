@@ -28,7 +28,7 @@ OTL 专项备份（v5）       ████████████████�
 WPS Backup.app          ✅ ~/Applications/WPS Backup.app，--diagnose 健康度 ok
 共享文件目录生成        ✅ 可用（手动运行）
 日历 CalDAV 代理        📋 见 calendar_Sync/AGENTS.md 和 DESIGN.md
-代码仓库                ⚠️ v4.1/v4.2 代码尚未提交（airpage_engine.py、tests/、macos/ 等未跟踪）
+代码仓库                ✅ 已推送 GitHub（959e98c，2026-09-26）
 ```
 
 ---
@@ -212,7 +212,6 @@ $ "$HOME/Applications/WPS Backup.app/Contents/MacOS/WPSBackup" --diagnose
 | 债务 | 优先级 | 说明 |
 |------|--------|------|
 | OTL v5 依赖未收录接口 | 中 | `export_to_markdown_zip` 不在 CLI spec，经直连调用；由 `TestOtlV5Contract` 监测 |
-| 代码未提交 | 高 | v4.1（airpage_engine.py、tests/）与 v4.2（app_contract.py、lock.py、macos/ 等）未纳入 git |
 | 通知依赖 GUI 运行 | 中 | 异常通知由菜单栏 App 发出（已设登录自启）；系统通知授权当前为“拒绝”，走 AppleScript 回退 |
 | `_content_backup` 对企业账号失效 | 中 | docx/pdf/xlsx 无 Markdown 层；评估 wps365-cli 等价接口 |
 | `verify_fix.py` 写生产状态 | — | ~~已修复~~：改用临时状态文件（其在线 dry-run 仍写生产日志，可接受） |
@@ -242,7 +241,6 @@ App 自动运行。仅在菜单栏图标变为 ! / ✗ 时查看原因行；或�
 
 ### 4.2 短期
 
-1. 提交 v4.1/v4.2 代码（先确认无敏感数据）
 2. 系统设置 → 通知 → WPS Backup 开启系统通知（当前走 AppleScript 回退）
 
 ### 4.3 中期
@@ -324,7 +322,7 @@ python3 verify_fix.py
 | 旧定时任务 | `com.wps.backup` 已停用，plist 移至 `wps_backup_state/legacy_com.wps.backup.plist` |
 | 构建工具链 | Xcode 26.6 已装但许可未接受 → `build.sh` 回退 Command Line Tools（Swift 6.3.3） |
 | GitHub 仓库 | https://github.com/All4worldjz/wps-kdocs-cli |
-| Git 状态 | ⚠️ v4.1/v4.2 改动未提交 |
+| Git 状态 | ✅ main 已推送（959e98c）；仓库根为上级目录 `GITREPO/`，只提交 `WPS_CLI/` |
 
 ---
 
@@ -404,7 +402,7 @@ python3 verify_fix.py
 - [x] 旧 com.wps.backup 与 SMAppService 注册已清理
 - [x] Python 111 测试 + Swift Core 18 测试通过
 - [x] README / AGENTS / HANDOFF / ADP / docs / macos/README 已同步更新
-- [ ] 代码提交（待用户确认）
+- [x] 代码提交并推送（959e98c）
 - [ ] 系统通知授权（用户在系统设置中开启；当前 AppleScript 回退）
 
 ---

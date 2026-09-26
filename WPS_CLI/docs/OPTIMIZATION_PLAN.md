@@ -43,7 +43,7 @@
 |---|---|---|---|
 | ~~P1~~ ✅ | **失败通知**（v4.2 App：异常才通知，未授权时 AppleScript 回退） | 防止再次静默失效 | 退出码非零时 `osascript -e 'display notification'` 或飞书 webhook；另加“距上次成功 >36h”检查（可放进 `status`） |
 | ~~P1~~ ✅ | **全局看门狗**（v4.2：`WPS_BACKUP_RUN_TIMEOUT`，124） | 防任何未知阻塞 | `run` 设整体超时（如 4h，`signal.alarm`），超时记日志并以非零退出，锁随进程释放 |
-| P1 | **提交 v4.1 代码** | 生产依赖的 `airpage_engine.py`、`tests/` 仍未纳入 git | HANDOFF 声称已推送，实际未跟踪 |
+| ~~P1~~ ✅ | **提交代码**（959e98c 已推送） | 生产依赖的 `airpage_engine.py`、`tests/` 仍未纳入 git | HANDOFF 声称已推送，实际未跟踪 |
 | ~~P1~~ ✅ | **下载绕过本地代理**（v5 `wps_http`：直连优先、代理回退） | 修复 docx 随机缺失 | 本机代理 127.0.0.1:3213 对金山云 ks3 域名 SSL 握手超时，直连 0.16s 成功；对 `*.ksyun.com`/`*.wps.cn` 等直连或失败后直连重试 |
 | ~~P1~~ ✅ | **OTL docx 补导**（v5 产物级增量，`E6pC1h5m`/`Nn1SvNVS` 已补齐） | 2 个文档缺 docx | docx 失败后仅 mtime 变化才重试；`docx_path` 为空时下次运行补导 |
 | ~~P2~~ ✅ | **单次目录树遍历**（v5：OTL 阶段 75 s → 0 s） | 扫描耗时约减半 | 主引擎与 OTL 各自遍历一次；OTL 每目录还发 2 次请求（带过滤 + 列子目录）。主引擎扫描时顺带收集 `.otl`，传给 OTL 引擎 |
