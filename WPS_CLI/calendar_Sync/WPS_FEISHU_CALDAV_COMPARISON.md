@@ -5,9 +5,9 @@
 | 项目 | WPS CalDAV | Feishu CalDAV |
 |------|------------|---------------|
 | 服务器 | `caldav.wps.cn` | `caldav.feishu.cn` |
-| 用户名 | `u_xQCBlhQAnuSvdY` | `u_ptkj8470` |
+| 用户名 | `<YOUR_WPS_CALDAV_USERNAME>` | `u_ptkj8470` |
 | 认证方式 | **Digest Auth** (MD5, qop=auth) | **Basic Auth** |
-| 日历URL | `/caldav/calendar/u_xQCBlhQAnuSvdY/r/9/ab61ee56-dcee-8fc4-9598-9cf150bf73ac` | `/u_ptkj8470/613469B5-4597-8001-6134-69B545978001/` |
+| 日历URL | `/caldav/calendar/<YOUR_WPS_CALDAV_USERNAME>/r/9/ab61ee56-dcee-8fc4-9598-9cf150bf73ac` | `/u_ptkj8470/613469B5-4597-8001-6134-69B545978001/` |
 | 日历名称 | 刘长春的日历 | CC Liu (我的私人日程表) |
 | DAV版本 | `1, 2, 3, access-control, calendar-access` | `1, 3, calendar-access` |
 
@@ -46,16 +46,16 @@ headers['Authorization'] = f'Basic {credentials}'
 
 | 特性 | WPS | Feishu |
 |------|-----|--------|
-| Principal URL | `/caldav/principal/u_xQCBlhQAnuSvdY/` | `/u_ptkj8470/` |
-| Calendar Home Set | `/caldav/calendar/u_xQCBlhQAnuSvdY/` | `/u_ptkj8470/` |
+| Principal URL | `/caldav/principal/<YOUR_WPS_CALDAV_USERNAME>/` | `/u_ptkj8470/` |
+| Calendar Home Set | `/caldav/calendar/<YOUR_WPS_CALDAV_USERNAME>/` | `/u_ptkj8470/` |
 | 日历路径格式 | 固定路径 + UUID (`r/9/uuid`) | 用户目录 + UUID (`uuid/`) |
 | 发现深度 | 需要3级PROPFIND | 需要2级PROPFIND (Depth:1) |
 
 **WPS 发现流程：**
 ```
-PROPFIND / → current-user-principal: /caldav/principal/u_xQCBlhQAnuSvdY/
-PROPFIND /caldav/principal/u_xQCBlhQAnuSvdY/ → calendar-home-set: /caldav/calendar/u_xQCBlhQAnuSvdY/
-PROPFIND /caldav/calendar/u_xQCBlhQAnuSvdY/ (Depth:1) → 列出日历
+PROPFIND / → current-user-principal: /caldav/principal/<YOUR_WPS_CALDAV_USERNAME>/
+PROPFIND /caldav/principal/<YOUR_WPS_CALDAV_USERNAME>/ → calendar-home-set: /caldav/calendar/<YOUR_WPS_CALDAV_USERNAME>/
+PROPFIND /caldav/calendar/<YOUR_WPS_CALDAV_USERNAME>/ (Depth:1) → 列出日历
 ```
 
 **Feishu 发现流程：**
@@ -97,7 +97,7 @@ PROPFIND /u_ptkj8470/ (Depth:1) → 直接列出日历
 
 **WPS ctag 示例：**
 ```
-https://rili.wps.cn/caldav/sync-token/v1/u_xQCBlhQAnuSvdY/9/ab61ee56-dcee-8fc4-9598-9cf150bf73ac?t=1716547890123
+https://rili.wps.cn/caldav/sync-token/v1/<YOUR_WPS_CALDAV_USERNAME>/9/ab61ee56-dcee-8fc4-9598-9cf150bf73ac?t=1716547890123
 ```
 
 **Feishu ctag 示例：**

@@ -30,6 +30,14 @@ PLIST_TEMPLATE = '''<?xml version="1.0" encoding="UTF-8"?>
         <string>run</string>
     </array>
 
+    <key>EnvironmentVariables</key>
+    <dict>
+        <key>PATH</key>
+        <string>{path}</string>
+        <key>HOME</key>
+        <string>{home}</string>
+    </dict>
+
     <key>StartCalendarInterval</key>
     <dict>
         <key>Hour</key>
@@ -62,6 +70,9 @@ def generate_launchd_plist(script_path: str, output_path: str = None):
         hour=config.SCHEDULE_HOUR,
         minute=config.SCHEDULE_MINUTE,
         log_dir=str(config.STATE_DIR),
+        # launchd 默认 PATH 不含 ~/.local/bin（wps365-cli / kdocs-cli 安装位置）
+        path=f"{Path.home() / '.local/bin'}:/opt/homebrew/bin:/usr/bin:/bin:/usr/sbin:/sbin",
+        home=str(Path.home()),
     )
     if output_path is None:
         output_path = str(config.APP_ROOT / "com.wps.backup.plist")

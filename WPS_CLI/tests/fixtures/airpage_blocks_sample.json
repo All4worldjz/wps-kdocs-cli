@@ -1,0 +1,418 @@
+{
+  "code": 0,
+  "data": {
+    "block": {
+      "doc": {
+        "attributes": {},
+        "block_id": "doc",
+        "children": [
+          {
+            "paragraph": {
+              "attributes": {
+                "align": "left",
+                "first_indent": 0,
+                "left_indent": 0
+              },
+              "block_id": "IpzhcgXWDsPMSOye",
+              "elements": [
+                {
+                  "text": {
+                    "attributes": {
+                      "content": "2026/02/26-2026/02/26"
+                    },
+                    "range_marks": []
+                  }
+                }
+              ],
+              "range_marks": []
+            }
+          },
+          {
+            "paragraph": {
+              "attributes": {
+                "align": "left",
+                "first_indent": 0,
+                "left_indent": 0
+              },
+              "block_id": "ewRJagoQImCvbiPv",
+              "elements": [
+                {
+                  "text": {
+                    "attributes": {
+                      "content": " "
+                    },
+                    "range_marks": []
+                  }
+                }
+              ],
+              "range_marks": []
+            }
+          },
+          {
+            "paragraph": {
+              "attributes": {
+                "align": "left",
+                "first_indent": 0,
+                "left_indent": 0
+              },
+              "block_id": "TdbDtNaCpLsOhpgu",
+              "elements": [
+                {
+                  "wps_user": {
+                    "attributes": {
+                      "id": "testUser1",
+                      "name": "测试用户"
+                    },
+                    "range_marks": []
+                  }
+                }
+              ],
+              "range_marks": []
+            }
+          },
+          {
+            "paragraph": {
+              "attributes": {
+                "align": "left",
+                "first_indent": 0,
+                "left_indent": 0
+              },
+              "block_id": "zfwCcjTgycfYadsd",
+              "elements": [
+                {
+                  "text": {
+                    "attributes": {
+                      "content": "“超级个体”的底层心智模型与核心元能力"
+                    },
+                    "range_marks": [],
+                    "style": {
+                      "bold": true
+                    }
+                  }
+                }
+              ],
+              "range_marks": []
+            }
+          },
+          {
+            "paragraph": {
+              "attributes": {
+                "align": "left",
+                "first_indent": 0,
+                "left_indent": 0
+              },
+              "block_id": "XvfOHgKaBHOzxbVa",
+              "elements": [
+                {
+                  "text": {
+                    "attributes": {
+                      "content": "“超级个体”并非指代那些掌握了极高编程技术、精通全栈开发的“十倍程序员”，而是指那些能够将自身的高阶认知能力与AI智能体的无限算力及不知疲倦的执行力深度融合，从而实现生产力数量级（而非百分比）跃升的敏捷员工 。在国内外前沿研究中，“超级个体”的岗位描述（Job Description）正在被重写，其核心价值建立在AI无法轻易复制的三大“元能力”（Meta-Capabilities）之上：   "
+                    },
+                    "range_marks": []
+                  }
+                }
+              ],
+              "range_marks": []
+            }
+          },
+          {
+            "paragraph": {
+              "attributes": {
+                "align": "left",
+                "first_indent": 0,
+                "left_indent": 0
+              },
+              "block_id": "rFcUgqmZdMTHEilF",
+              "elements": [],
+              "range_marks": []
+            }
+          },
+          {
+            "paragraph": {
+              "attributes": {
+                "align": "left",
+                "first_indent": 0,
+                "left_indent": 0
+              },
+              "block_id": "iVKZOMczgNCFignA",
+              "elements": [
+                {
+                  "text": {
+                    "attributes": {
+                      "content": "第一，问题定义与系统性思维（Problem Definition and Systematic Thinking）。在AI能够瞬间生成海量解决方案的时代，正确地提出问题远比解决问题本身更具商业价值。超级个体必须具备第一性原理思考能力，能够洞察商业全局，将模糊的、非结构化的业务痛点精准拆解为AI智能体可理解并执行的逻辑步骤 。   "
+                    },
+                    "range_marks": []
+                  }
+                }
+              ],
+              "range_marks": []
+            }
+          },
+          {
+            "paragraph": {
+              "attributes": {
+                "align": "left",
+                "first_indent": 0,
+                "left_indent": 0
+              },
+              "block_id": "qAbQrmXGnRfOJqKp",
+              "elements": [],
+              "range_marks": []
+            }
+          },
+          {
+            "paragraph": {
+              "attributes": {
+                "align": "left",
+                "first_indent": 0,
+                "left_indent": 0
+              },
+              "block_id": "VnwhlStOWyuUVaYH",
+              "elements": [
+                {
+                  "text": {
+                    "attributes": {
+                      "content": "第二，决定性判断力（Decisive Judgment）。这是在硅基智能时代被视为最关键的人类能力。在信息泛滥和AI高频产出的环境中，最稀缺的人才不再是信息的制造者，而是能够基于商业直觉、伦理边界、跨学科常识和战略目标进行“裁决”的人。未来的业务领导者往往呈现出“外行领导内行”（Outsider leading insiders）的特质——他们不需要是某项技术的最深耕者，但必须是能准确评估各类AI智能体产出质量、引导资源分配并果断拍板的决策核心 。   "
+                    },
+                    "range_marks": []
+                  }
+                }
+              ],
+              "range_marks": []
+            }
+          },
+          {
+            "paragraph": {
+              "attributes": {
+                "align": "left",
+                "first_indent": 0,
+                "left_indent": 0
+              },
+              "block_id": "eEfUpOSQTefBNkFb",
+              "elements": [],
+              "range_marks": []
+            }
+          },
+          {
+            "paragraph": {
+              "attributes": {
+                "align": "left",
+                "first_indent": 0,
+                "left_indent": 0
+              },
+              "block_id": "xLdpAOUntNqSHfLp",
+              "elements": [
+                {
+                  "text": {
+                    "attributes": {
+                      "content": "第三，硅基智能管理与调度（Silicon Intelligence Management）。超级个体的角色实现了从“执行者”（Doing work）向“导演/管理者”（Directing work）的本质跨越。这要求员工必须具备管理一支由多个“硅基智能体”组成的虚拟团队的能力。其核心在于掌握提示词工程（Prompt Engineering），学会如何提出正确的上下文假设，设定清晰的安全护栏与激励条件。高质量的输出直接取决于人类高质量的输入管理，员工应当主动进化为组织内的“内部提示词大师”（Internal Prompt Master），在日常团队工作流中不断实验并固化高效的AI调用范式 。   "
+                    },
+                    "range_marks": []
+                  }
+                }
+              ],
+              "range_marks": []
+            }
+          },
+          {
+            "paragraph": {
+              "attributes": {
+                "align": "left",
+                "first_indent": 0,
+                "left_indent": 0
+              },
+              "block_id": "ZxGXsGuOhJhdPJtK",
+              "elements": [
+                {
+                  "wps_user": {
+                    "attributes": {
+                      "id": "testUser1",
+                      "name": "测试用户"
+                    },
+                    "range_marks": []
+                  }
+                }
+              ],
+              "range_marks": []
+            }
+          },
+          {
+            "picture": {
+              "attributes": {
+                "align": "left",
+                "border_type": "none",
+                "height": 468,
+                "id": "1354e54ee74bccb45f01cde94ec77740bde39a38",
+                "render_width": 740,
+                "rotate": 0,
+                "storage_type": "ks3",
+                "width": 975
+              },
+              "block_id": "mYZrDMBGwWRgnycl",
+              "range_marks": []
+            }
+          },
+          {
+            "paragraph": {
+              "attributes": {
+                "align": "left",
+                "first_indent": 0,
+                "left_indent": 0
+              },
+              "block_id": "eOPrqhIWTfGCqLqT",
+              "elements": [
+                {
+                  "text": {
+                    "attributes": {
+                      "content": " "
+                    },
+                    "range_marks": []
+                  }
+                }
+              ],
+              "range_marks": []
+            }
+          },
+          {
+            "paragraph": {
+              "attributes": {
+                "align": "left",
+                "first_indent": 0,
+                "left_indent": 0
+              },
+              "block_id": "NnUbxufBDklCtvEt",
+              "elements": [
+                {
+                  "wps_user": {
+                    "attributes": {
+                      "id": "testUser1",
+                      "name": "测试用户"
+                    },
+                    "range_marks": []
+                  }
+                }
+              ],
+              "range_marks": []
+            }
+          },
+          {
+            "picture": {
+              "attributes": {
+                "align": "left",
+                "border_type": "none",
+                "height": 385,
+                "id": "9f0634d51996671d2c5d3437d2d314ac22efe1c9",
+                "render_width": 408.036,
+                "rotate": 0,
+                "storage_type": "ks3",
+                "width": 408
+              },
+              "block_id": "JRQcEahDflQCtjaM",
+              "range_marks": []
+            }
+          },
+          {
+            "paragraph": {
+              "attributes": {
+                "align": "left",
+                "first_indent": 0,
+                "left_indent": 0
+              },
+              "block_id": "hohdwwNKjRmxhFUl",
+              "elements": [
+                {
+                  "text": {
+                    "attributes": {
+                      "content": " "
+                    },
+                    "range_marks": []
+                  }
+                }
+              ],
+              "range_marks": []
+            }
+          },
+          {
+            "paragraph": {
+              "attributes": {
+                "align": "left",
+                "first_indent": 0,
+                "left_indent": 0
+              },
+              "block_id": "JgtoPlfLtQLoSaMR",
+              "elements": [
+                {
+                  "wps_user": {
+                    "attributes": {
+                      "id": "testUser1",
+                      "name": "测试用户"
+                    },
+                    "range_marks": []
+                  }
+                }
+              ],
+              "range_marks": []
+            }
+          },
+          {
+            "picture": {
+              "attributes": {
+                "align": "left",
+                "border_type": "none",
+                "height": 446,
+                "id": "158c19500f06b24ac185831f7ed1b43650b8c0e8",
+                "render_width": 407.00000000000006,
+                "rotate": 0,
+                "storage_type": "ks3",
+                "width": 407
+              },
+              "block_id": "GcTCOITZvHFOyybP",
+              "range_marks": []
+            }
+          },
+          {
+            "paragraph": {
+              "attributes": {
+                "align": "left",
+                "first_indent": 0,
+                "left_indent": 0
+              },
+              "block_id": "yJpuihCRARqNzAJW",
+              "elements": [
+                {
+                  "text": {
+                    "attributes": {
+                      "content": " "
+                    },
+                    "range_marks": []
+                  }
+                }
+              ],
+              "range_marks": []
+            }
+          }
+        ],
+        "range_marks": [],
+        "title": {
+          "attributes": {
+            "align": "left"
+          },
+          "block_id": "title",
+          "elements": [
+            {
+              "text": {
+                "attributes": {
+                  "content": "鄢罗浩的聊天记录"
+                },
+                "range_marks": []
+              }
+            }
+          ],
+          "range_marks": []
+        }
+      }
+    },
+    "version": 3
+  },
+  "msg": ""
+}

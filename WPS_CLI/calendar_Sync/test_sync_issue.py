@@ -14,11 +14,11 @@ from datetime import datetime, timedelta
 
 CALDAV_CONFIG = {
     "url": "https://caldav.wps.cn",
-    "username": "u_xQCBlhQAnuSvdY",
-    "password": "LCGOFYWFxRon9rDYc3XIP30Gim",
+    "username": "<YOUR_WPS_CALDAV_USERNAME>",
+    "password": "<YOUR_WPS_CADAV_APP_PASSWORD>",
 }
 
-CALENDAR_URL = "https://caldav.wps.cn/caldav/calendar/u_xQCBlhQAnuSvdY/r/9/ab61ee56-dcee-8fc4-9598-9cf150bf73ac"
+CALENDAR_URL = "https://caldav.wps.cn/caldav/calendar/<YOUR_WPS_CALDAV_USERNAME>/r/9/ab61ee56-dcee-8fc4-9598-9cf150bf73ac"
 
 
 class DigestAuth:

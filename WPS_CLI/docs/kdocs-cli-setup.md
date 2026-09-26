@@ -8,6 +8,19 @@
 
 ---
 
+> **⚠️ 本项目当前状态（2026-09-26 更新，优先于下文）**
+>
+> - **kdocs-cli 对企业账号不可用**：kdocs API 返回 `403001`（仅支持个人账号）。`auth status` 仍显示已认证，引擎会通过业务探测自动判为不可用。OTL 备份已改用 `wps365-cli airpage`。
+> - **wps365-cli 当前 v0.3.6**（`~/.local/bin/wps365-cli`）。v0.3.3+ 升级后必须：
+>   1. `wps365-cli spec update`（否则无 `airpage` 命令）
+>   2. 授权含 `kso.airpage.readwrite`：`wps365-cli auth login --device`
+>   3. 运行 `python3 -m unittest tests.test_cli_contract`（v0.3.3 曾将 `drive files` 改名 `drive file`，扫描返回 0）
+>   4. 在 `HANDOFF.md` §6 记录新版本与回退备份位置（见 `AGENTS.md`“文档维护规则”）
+> - `/usr/local/bin/wps365-cli` 是旧版 v0.1.0，**不要**让它排在 PATH 前面；引擎与 WPS Backup.app 使用 `~/.local/bin` 绝对路径（可用 `WPS365_CLI_BIN` 覆盖）。
+> - 定时备份由 **WPS Backup.app** 管理（`macos/README.md`），不要再手动安装 `com.wps.backup` launchd 任务。
+
+---
+
 ## 目录
 
 1. [概述与工具对比](#1-概述与工具对比)

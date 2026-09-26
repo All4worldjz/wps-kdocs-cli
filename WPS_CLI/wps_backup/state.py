@@ -124,8 +124,12 @@ class BackupState:
             self._save()
 
     def prune_stale(self, current_file_keys: set):
-        """清理状态中已不存在的远程文件"""
+        """清理状态中已不存在的远程文件。
+        防护：远程扫描结果为空但本地有记录时，视为扫描异常，跳过清理，
+        避免 CLI 接口漂移/认证失败导致增量状态被整体清空。"""
         with self._lock:
+            if not current_file_keys and self.snapshots:
+                return 0
             stale = set(self.snapshots.keys()) - current_file_keys
             for key in stale:
                 del self.snapshots[key]

@@ -1,9 +1,9 @@
 # WPS CLI 工具集 — 架构决策文档 (ADP)
 
-**版本:** 2.0
-**日期:** 2026-06-09
-**作者:** Kimi Code CLI
-**状态:** 生产运行中，kdocs-cli 混合架构升级完成
+**版本:** 2.3
+**日期:** 2026-09-26
+**作者:** Kimi Code CLI；v4.2 决策（§5.9–5.13）由 Claude Code 补充
+**状态:** 生产运行中，v5：OTL 官方 markdown_zip + docx 并行导出
 
 ---
 
@@ -72,7 +72,8 @@
 | v1.0 | 2026-04 | 基础备份引擎，单线程下载 |
 | v2.0 | 2026-05 | 多线程并发、断点续传、状态管理 |
 | v3.0 | 2026-05 | URL 限流、405 重试、file_id 路径隔离、失败追踪 |
-| **v4.0** | **2026-06** | **引入 kdocs-cli 混合架构，新增文档内容备份层** |
+| v4.0 | 2026-06 | 引入 kdocs-cli 混合架构，新增文档内容备份层 |
+| **v4.0.1** | **2026-07** | **修复 xlsx/ksheet 内容备份类型错误（dict → JSON 序列化）；恢复 launchd 定时任务** |
 
 ---
 
@@ -148,12 +149,20 @@ WPS Drive API 无法直接下载 `.otl`（在线文档私有格式）。v4.0 采
 
 #### 3.1.5 kdocs-cli 封装 (`kdocs_engine.py`)
 
-- `read_file_content()` — 调用 `kdocs-cli drive read-file`，返回 Markdown 内容
+- `read_file_content()` — 调用 `kdocs-cli drive read-file`，返回原始 `data`（注意：`content` 字段类型因格式而异）
 - `backup_file_content()` — 将文档内容备份为 `.md`（带 YAML frontmatter）
 - `backup_otl_content()` — OTL 专用内容备份
+- `_content_to_text()` — 内容类型归一化（v4.0.1 新增）：str 原样返回，dict/list 序列化为格式化 JSON
 - `search_files()` — 文件名/全文搜索
 - `check_kdocs_cli_available()` — 认证状态检查
 - `get_kdocs_version()` — 版本获取
+
+**`read-file` 返回的 content 类型（实测，v4.0.1 确认）：**
+
+| 格式 | content 类型 | 存储形式 |
+|------|-------------|---------|
+| docx / otl / pdf | Markdown 字符串 | 直接写入 `.md` |
+| xlsx / ksheet | 结构化 dict（`range_data` + `sheets_info`，含单元格文本与格式） | 序列化为格式化 JSON 写入 `.md` |
 
 **内容备份文件格式：**
 
@@ -324,7 +333,7 @@ WPS_CLI 不使用任何第三方 Python 包（无 `requirements.txt` / `pyprojec
 - 调试友好：人工可编辑、可版本控制（小规模状态下）。
 - 原子写入简单：`.tmp` + `replace()` 即可。
 
-**代价：** 文件变大后读写性能下降。当前 906 条记录约 600KB，远未触及瓶颈。若未来超过 10K 条记录，建议迁移到 SQLite。
+**代价：** 文件变大后读写性能下降。当前 967 条记录约 600KB，远未触及瓶颈。若未来超过 10K 条记录，建议迁移到 SQLite。
 
 ### 5.3 为什么 file_id 隔离而非内容哈希去重？
 
@@ -375,6 +384,65 @@ WPS_CLI 不使用任何第三方 Python 包（无 `requirements.txt` / `pyprojec
 - kdocs-cli `drive read-file` 原生输出 Markdown，无需额外转换。
 - Markdown 是纯文本，便于版本控制、全文搜索、跨平台阅读。
 - YAML frontmatter 可嵌入元数据（file_id, drive_id, source_format, backup_at），便于下游处理。
+
+### 5.8 为什么 xlsx/ksheet 内容存为 JSON 而非渲染为 Markdown 表格？（v4.0.1）
+
+**背景：** v4.0 假设 `read-file` 对所有格式都返回 Markdown 字符串，但实测 xlsx/ksheet 返回的是结构化 dict（`range_data` + `sheets_info`），直接拼接导致 `can only concatenate str (not "dict") to str`，7 个表格文件内容备份全部失败。
+
+**决策：** 新增 `_content_to_text()` 做类型归一化——字符串原样返回，dict/list 用 `json.dumps(ensure_ascii=False, indent=2)` 序列化后写入 `.md` 文件。
+
+**原因：**
+- **数据完整性优先**：`range_data` 包含单元格文本、合并区域、字体、颜色等完整信息，渲染为 Markdown 表格会丢失大量结构。
+- **最小改动**：只修类型归一化一处，不改备份文件格式与 frontmatter 约定，不影响下游消费。
+- **可解析性**：JSON 是纯文本且可机器解析，未来需要渲染表格时可随时离线转换。
+
+**代价：** `.md` 文件中表格内容可读性不如 Markdown 表格，但搜索（grep/ripgrep）不受影响。
+
+---
+
+### 5.9 为什么调度由 App 的“每小时触发 + 引擎判定”而非固定 20:00？（v4.2，2026-09-26）
+
+- **背景**：旧 launchd 任务每天 20:00 触发一次；失败（token、网络、PATH）后当天不再尝试，且失败返回 0，静默失效两个月无人发现。
+- **决定**：LaunchAgent 每小时整点执行 `wps_backup.py scheduled`；由引擎 `should_run_scheduled()` 判断：到点后当天无成功才运行，失败每小时重试、每天 ≤3 次，被锁（75）不计次。
+- **后果**：修改运行时间无需重装 plist（设置由 runner 运行时读取）；睡眠错过的触发唤醒后补一次；每小时心跳让 App 能发现“任务没在跑”。
+
+### 5.10 为什么用经典 LaunchAgent plist 而非 SMAppService？（v4.2）
+
+- **实测**：ad-hoc 签名 App 通过 `SMAppService.agent` 注册后，launchd 为 agent 固定 cdhash 约束（LWCR）。重新构建后 LWCR 变为空并标记 `needs LWCR update`，不会自愈；注销→等待→重注册亦不可靠；agent 以 `OS_REASON_CODESIGNING` / `spawn failed` 被拒。
+- **决定**：App 自行写入 `~/Library/LaunchAgents/cc.all4world.wpsbackup.{scheduler,login}.plist`（无 LWCR），每次启动幂等安装（内容变化或未加载才 bootout/bootstrap），并清理旧 SMAppService 注册与旧 `com.wps.backup`。
+- **后果**：重建/升级 App 不影响定时任务；用户仍可在“登录项”中关闭（App 检测 `print-disabled` 并提示）。若将来使用带 Team ID 的签名（Apple Development / Developer ID），可重新评估 SMAppService。
+
+### 5.11 为什么 GUI 与引擎通过状态文件而非进程输出交互？（v4.2）
+
+- 定时运行由 launchd 启动，GUI 可能未运行，也永远拿不到 stdout。
+- 契约（`app_contract.py`）：`last_run.json`（原子写，含 75/124/130）、`runs.jsonl`、`progress.json`（含 PID，取消 = SIGTERM）、`scheduler_heartbeat.json`、`force_run` 标记；`status --json` 汇总并计算健康度。
+- “立即备份” = 写 `force_run` + `launchctl kickstart`，与定时运行共用同一环境与运行锁。
+
+### 5.12 为什么 WPS Office 缓存扫描默认关闭？（v4.2）
+
+- `~/Library/Containers/com.kingsoft.wpsoffice.mac` 受 macOS“App 数据”隐私保护；launchd/无终端下 `opendir` 阻塞等待授权弹窗，进程永久挂起（2026-09-26 复现）。
+- airpage 已覆盖 OTL 的 Markdown + docx，最近一次缓存复制为 0 个，价值低。
+- 决定：先在子进程中 15s 超时探测（超时 kill 不 wait），App 默认 `WPS_OTL_CACHE_SCAN=0`，需要时在设置中开启并授予完全磁盘访问权限。
+
+### 5.13 为什么失败必须非零退出、扫描不完整不得清理状态？（v4.2）
+
+- 退出码是 launchd/App 判断成败的唯一信号；认证/扫描失败曾以 0 退出导致静默失效。约定：0 成功 · 1 失败 · 75 被锁 · 124 超时 · 130 取消。
+- “非空但不完整”的扫描会绕过空扫描防护，`prune_stale` 误删其他盘增量记录；任何盘/目录扫描失败时跳过清理。
+
+---
+
+### 5.14 为什么 OTL 改用官方 markdown_zip + docx 并行导出，并复用主引擎扫描？（v5，2026-09-26）
+
+- **背景**：v4.1 用 `airpage block get` 块树自行转 Markdown（丢失标题、加粗、链接、图片），docx 导出串行；OTL 阶段每天重新遍历整个目录树（每目录 2 次请求，75 s），即使无任何变化；本机代理使 ks3 下载间歇失败，docx 失败后永不重试。
+- **调研**：WPS 开放平台文档树中发现官方“ap 转 markdown / markdown_zip 任务”（CLI spec 未收录，直连可用）；导出接口限频“无”，结果按版本缓存；快捷方式条目 `type=shortcut`。
+- **决定**：
+  1. 主引擎扫描时一次性收集 `.otl`/`.otl.link`，OTL 引擎不再扫描（扫描不完整则不 prune）。
+  2. 每篇并行创建 `markdown_zip` 与 `docx` 任务，统一轮询；图片随 md 落地到 `.assets/` 并改写链接；块树转换降为回退。
+  3. 状态按产物（md/docx）独立增量，`format` 字段驱动一次性升级；只补缺失产物。
+  4. 新增 `wps_http` 直连客户端：新接口直接 HTTP 调用；WPS/金山云域名直连优先、回退代理。
+  5. OTL 阶段 4 路并发。
+- **失败语义**：永久失败只认响应码 `403000001`（HTTP 403 也可能是 token 失效 `400000003`）；临时失败进入 `result.errors`，run 退出码 1。
+- **后果**：日常运行 118 s → 43–58 s；Markdown 保真度大幅提升且含图片；docx 缺失可自动补齐。新接口不在 CLI spec 中，依赖线上契约测试 `TestOtlV5Contract` 监测变化。**不**通过 `wps365-cli spec update` 引入（曾致命令改名事故）。事件订阅（`kso_file_update` / 长连接）与 PDF 归档列为后续选项。
 
 ---
 
@@ -468,9 +536,11 @@ python3 sync_shared_files.py
 | 单文件最大重试 | 5 次 | 含 chunk 级 3 次重试 |
 | URL 获取间隔 | 200 ms | 串行化限流 |
 | 整体下载超时 | 600 秒 | 单文件 |
-| 状态文件大小 | ~600 KB (906 条记录) | JSON 格式 |
-| OTL 内容备份 | 169 文件 / 256 秒 | kdocs-cli read-file |
-| 内容备份格式 | Markdown + YAML frontmatter | 纯文本，便于搜索 |
+| 状态文件大小 | ~600 KB (967 条记录) | JSON 格式 |
+| 快照覆盖 | 967 文件 / ~26.2 GB | 2026-07-27 全量同步 |
+| OTL 内容备份 | 172/205 文件 | kdocs-cli read-file |
+| 文档内容备份 | 40 个 Markdown | `_content_backup/` |
+| 内容备份格式 | Markdown + YAML frontmatter | xlsx/ksheet 为 JSON（v4.0.1） |
 
 ---
 
@@ -482,8 +552,8 @@ python3 sync_shared_files.py
 |---------|---------|-------------|
 | **双向同步** | 不支持 | 需监听本地文件系统变更（`fsevents`/`inotify`），调用 WPS 上传 API |
 | **增量备份到对象存储** | 不支持 | 在 `mark_backed_up` 后增加 S3/OSS 上传钩子 |
-| **Web 管理界面** | 不支持 | 轻量级 Flask/FastAPI 服务，读取 `backup_state.json` 展示进度 |
-| **邮件/飞书通知** | 不支持 | 在 `BackupResult` 返回后增加 webhook 调用 |
+| **管理界面** | ✅ v4.2 WPS Backup.app（菜单栏） | 读取 `status --json` / `progress.json` |
+| **邮件/飞书通知** | 部分（v4.2 App 本地通知） | 可在 `last_run.json` 写入后增加 webhook |
 | **压缩/加密存储** | 不支持 | 在 `download_with_resume` 完成后增加压缩/加密步骤 |
 | **状态迁移到 SQLite** | 不需要 | 当记录 >10K 时，替换 `state.py` 的 JSON 读写为 SQLite |
 | **内容备份增量** | 不支持 | 在 `state.py` 中增加 `content_mtime` 字段，避免重复调用 read-file |
@@ -496,6 +566,9 @@ python3 sync_shared_files.py
 - `README.md` — 项目概览与快速开始
 - `AGENTS.md` — 项目总体说明与运行方式
 - `HANDOFF.md` — 当前状态与交接事项
+- `macos/README.md` — WPS Backup.app 构建、组成、排障
+- `docs/OPTIMIZATION_PLAN.md` — 巡检结论与优化计划
+- `docs/MACOS_APP_PLAN.md` — App 计划与实施记录
 - `docs/kdocs-cli-setup.md` — wps365-cli 与 kdocs-cli 安装配置指南
 - `calendar_Sync/AGENTS.md` — CalDAV 代理子项目说明
 - `calendar_Sync/DESIGN.md` — CalDAV 代理设计文档

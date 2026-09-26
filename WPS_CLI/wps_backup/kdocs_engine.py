@@ -26,6 +26,7 @@ class ContentBackupResult:
     content_format: str = ""
     error: str = ""
     size: int = 0
+    docx_path: str = ""       # airpage 导出的 docx 路径（仅 OTL）
 
 
 @dataclass
@@ -95,8 +96,8 @@ def read_file_content(file_id: str, drive_id: str = "") -> Optional[dict]:
 
 
 def is_content_readable(ext: str) -> bool:
-    """判断文件扩展名是否支持内容读取"""
-    return ext.lower() in {".docx", ".pdf", ".xlsx", ".ksheet", ".dbt", ".otl"}
+    """判断文件扩展名是否支持内容读取（与 config.CONTENT_BACKUP_FORMATS 保持一致）"""
+    return ext.lower() in {".docx", ".doc", ".pdf", ".xlsx", ".xls", ".ksheet", ".dbt", ".otl"}
 
 
 def backup_file_content(file_id: str, name: str, drive_id: str = "",
@@ -131,7 +132,7 @@ def backup_file_content(file_id: str, name: str, drive_id: str = "",
         result.error = "无法读取文档内容"
         return result
 
-    content = content_data.get("content", "")
+    content = _content_to_text(content_data.get("content", ""))
     if not content:
         result.error = "文档内容为空"
         return result
@@ -192,7 +193,7 @@ def backup_otl_content(file_id: str, name: str, drive_id: str = "",
         result.error = "无法读取 OTL 内容"
         return result
 
-    content = content_data.get("content", "")
+    content = _content_to_text(content_data.get("content", ""))
     if not content:
         result.error = "OTL 内容为空"
         return result
@@ -269,6 +270,20 @@ def _sanitize(name: str) -> str:
     return re.sub(r'[\\/:*?"<>|\t\n\r]', '_', name.strip())[:200]
 
 
+def _content_to_text(content) -> str:
+    """将 read-file 返回的内容统一为文本
+    docx/otl 等返回 Markdown 字符串；xlsx/ksheet 返回结构化 dict，序列化为 JSON
+    """
+    if isinstance(content, str):
+        return content
+    if content:
+        return json.dumps(content, ensure_ascii=False, indent=2)
+    return ""
+
+
+ENTERPRISE_REJECTED_CODE = 403001  # kdocs API：暂仅支持个人账号
+
+
 def check_kdocs_cli_available() -> bool:
     """检查 kdocs-cli 是否可用且已认证"""
     try:
@@ -277,9 +292,22 @@ def check_kdocs_cli_available() -> bool:
         if r.returncode != 0:
             return False
         data = json.loads(r.stdout)
-        return data.get("authenticated", False)
+        if not data.get("authenticated", False):
+            return False
     except Exception:
         return False
+    # auth status 只检查本地 token；企业账号的业务接口返回 403001（仅支持个人账号），
+    # 探测一次，避免每个下载文件都白跑 read-file 重试
+    try:
+        r = subprocess.run([config.KDOCS_CLI_BIN, "drive", "read-file",
+                            json.dumps({"file_id": "__probe__"})],
+                           capture_output=True, text=True, timeout=20)
+        if json.loads(r.stdout).get("code") == ENTERPRISE_REJECTED_CODE:
+            logger.info("   ⏭️  kdocs-cli 已认证但为企业账号（403001），内容备份不可用")
+            return False
+    except Exception:
+        pass  # 探测失败（网络等）不改变原有判断
+    return True
 
 
 def get_kdocs_version() -> str:

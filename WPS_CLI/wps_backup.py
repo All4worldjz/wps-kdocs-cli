@@ -14,7 +14,10 @@ WPS 云盘 → 本地差量备份应用
   python3 wps_backup.py log              # 查看最近日志
 """
 
+import datetime
 import json
+import os
+import signal
 import sys
 import argparse
 from pathlib import Path
@@ -28,27 +31,109 @@ from wps_backup.scheduler import daemon_mode, generate_launchd_plist
 from wps_backup.logger import setup_logger
 from wps_backup.otl_engine import run_otl_backup
 from wps_backup import kdocs_engine
+from wps_backup import lock
+from wps_backup import app_contract as ac
+
+RUN_LOCK_FILE = config.STATE_DIR / ".run.lock"
 
 logger = setup_logger()
 
 
-def cmd_run(args):
-    """立即执行一次差量备份（含 .otl 专项）"""
+def do_backup(args, progress=None):
+    """执行一次差量备份（含 .otl 专项），返回 (exit_code, counts, errors)"""
     # 1) 常规文件备份
-    engine = BackupEngine(workers=args.workers)
+    engine = BackupEngine(workers=args.workers, progress=progress)
     result = engine.run(max_files=args.max, dry_run=args.dry_run)
-    regular_ok = result.failed == 0
+    # 认证失败 / 扫描失败只记录在 errors 中（failed 为 0），也必须返回非零退出码
+    regular_ok = result.failed == 0 and not result.errors
+    counts = {"total": result.total, "new": result.new, "updated": result.updated,
+              "skipped": result.skipped, "failed": result.failed}
+    errors = list(result.errors)
 
     # 2) OTL 专项备份
-    if not args.no_otl:
+    otl_ok = True
+    if not args.no_otl and not ac.CANCEL.is_set():
         logger.info("📋 开始 OTL 专项备份...")
-        otl_result = run_otl_backup(dry_run=args.dry_run)
+        otl_result = run_otl_backup(dry_run=args.dry_run, progress=progress,
+                                    api_files=engine.otl_files, scan_complete=engine.scan_complete)
         otl_ok = len(otl_result.errors) == 0
-    else:
+        counts.update({"otl_total": otl_result.total,
+                       "otl_content_backed_up": otl_result.content_backed_up,
+                       "otl_content_failed": otl_result.content_failed,
+                       "otl_docx_exported": otl_result.docx_exported})
+        errors += [f"OTL: {e}" for e in otl_result.errors]
+    elif args.no_otl:
         logger.info("📋 跳过 OTL 备份（--no-otl）")
-        otl_ok = True
 
-    return 0 if (regular_ok and otl_ok) else 1
+    return (0 if (regular_ok and otl_ok) else 1), counts, errors
+
+
+def run_recorded(args, trigger: str) -> int:
+    """在运行锁、SIGTERM 取消、看门狗与运行记录（last_run.json 等）下执行备份。
+    GUI 依赖这些文件判断结果；dry-run 不记录（否则会被当作当天已成功）。"""
+    if args.dry_run:
+        fd = lock.acquire(RUN_LOCK_FILE)
+        if fd is None:
+            logger.error(f"⏭️  另一个备份进程正在运行（PID {lock.holder_pid(RUN_LOCK_FILE)}），本次跳过")
+            return lock.EXIT_LOCKED
+        try:
+            return do_backup(args)[0]
+        finally:
+            lock.release(fd)
+
+    rec = ac.RunRecorder(config.STATE_DIR, trigger)
+    fd = lock.acquire(RUN_LOCK_FILE)
+    if fd is None:
+        msg = f"另一个备份进程正在运行（PID {lock.holder_pid(RUN_LOCK_FILE)}），本次跳过"
+        logger.error(f"⏭️  {msg}")
+        rec.finish(lock.EXIT_LOCKED, errors=[msg], clear_progress=False)
+        return lock.EXIT_LOCKED
+
+    def hard_exit(code):
+        logger.error(f"⏱️  运行超过 {config.RUN_TIMEOUT}s 且取消后仍未结束，强制退出")
+        rec.finish(code, errors=["运行超时，强制退出"])
+        os._exit(code)
+
+    signal.signal(signal.SIGTERM, lambda *_: ac.CANCEL.set())
+    watchdog = ac.Watchdog(config.RUN_TIMEOUT, on_hard_exit=hard_exit)
+    rec.start()
+    watchdog.start()
+    code, counts, errors = ac.EXIT_FAILED, {}, []
+    try:
+        code, counts, errors = do_backup(args, progress=rec.update)
+    except Exception as e:
+        logger.exception(f"❌ 备份异常: {e}")
+        errors = [f"异常: {e}"]
+    finally:
+        watchdog.stop()
+        if watchdog.timed_out:
+            code = ac.EXIT_TIMEOUT
+        elif ac.CANCEL.is_set():
+            code = ac.EXIT_CANCELLED
+        rec.finish(code, counts, errors)
+        lock.release(fd)
+    return code
+
+
+def cmd_run(args):
+    """立即执行一次差量备份（含 .otl 专项）"""
+    return run_recorded(args, trigger="manual")
+
+
+def cmd_scheduled(args):
+    """由 App 的 launchd agent 每小时触发：到点且当天未成功才运行；force_run 标记（GUI“立即备份”）优先"""
+    now = datetime.datetime.now()
+    ac.write_json_atomic(config.STATE_DIR / ac.HEARTBEAT_FILE,
+                         {"at": now.isoformat(timespec="seconds"), "pid": os.getpid()})
+    marker = config.STATE_DIR / ac.FORCE_MARKER
+    force = marker.exists()
+    if force:
+        marker.unlink(missing_ok=True)
+    elif not ac.should_run_scheduled(now, config.SCHEDULE_HOUR, ac.read_history(config.STATE_DIR)):
+        return 0
+    logger.info(f"⏰ {'手动触发（App）' if force else '定时触发'}备份")
+    run_args = argparse.Namespace(dry_run=False, max=None, workers=config.MAX_CONCURRENT, no_otl=False)
+    return run_recorded(run_args, trigger="manual" if force else "schedule")
 
 
 def cmd_daemon(args):
@@ -58,7 +143,12 @@ def cmd_daemon(args):
 
 
 def cmd_install(args):
-    """生成 launchd plist"""
+    """生成 launchd plist（已被 WPS Backup.app 取代）"""
+    app_plist = Path.home() / "Library/LaunchAgents/cc.all4world.wpsbackup.scheduler.plist"
+    if app_plist.exists():
+        print(f"⚠️  WPS Backup.app 已接管定时任务（{app_plist}）。\n"
+              f"   再安装 com.wps.backup 会产生第二个计划（每晚一个以 75 退出）。已取消。")
+        return 1
     script = Path(__file__).resolve()
     generate_launchd_plist(str(script))
     return 0
@@ -66,6 +156,14 @@ def cmd_install(args):
 
 def cmd_status(args):
     """查看备份状态"""
+    if getattr(args, "json", False):
+        st = ac.collect_status(config.STATE_DIR, config.CLI_BIN, config.SCHEDULE_HOUR)
+        state = BackupState()
+        st["snapshot"] = state.stats()
+        st["backup_dir"] = str(config.BACKUP_DIR)
+        st["log_file"] = str(config.LOG_FILE)
+        print(json.dumps(st, ensure_ascii=False, indent=2))
+        return 0
     state = BackupState()
     stats = state.stats()
 
@@ -165,7 +263,9 @@ def main():
 
     sub.add_parser("daemon", help="守护模式（后台轮询，到时间自动备份）")
     sub.add_parser("install", help="生成 launchd 定时任务配置文件")
-    sub.add_parser("status", help="查看备份状态")
+    p_status = sub.add_parser("status", help="查看备份状态")
+    p_status.add_argument("--json", action="store_true", help="机器可读输出（供 GUI）")
+    sub.add_parser("scheduled", help="供 App agent 每小时调用：到点/被请求时才运行")
 
     p_otl = sub.add_parser("backup-otl", help=".otl 文件专项备份（kdocs-cli 内容 + 缓存实体）")
     p_otl.add_argument("--dry-run", action="store_true", help="仅预览匹配结果")
@@ -187,7 +287,18 @@ def main():
         "status": cmd_status,
         "log": cmd_log,
         "backup-otl": cmd_backup_otl,
+        "scheduled": cmd_scheduled,
     }
+    if args.command in ("backup-otl",):
+        fd = lock.acquire(RUN_LOCK_FILE)
+        if fd is None:
+            logger.error(f"⏭️  另一个备份进程正在运行（PID {lock.holder_pid(RUN_LOCK_FILE)}，"
+                         f"{RUN_LOCK_FILE}），本次跳过")
+            return lock.EXIT_LOCKED
+        try:
+            return cmds[args.command](args)
+        finally:
+            lock.release(fd)
     return cmds[args.command](args)
 
 

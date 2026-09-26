@@ -27,3 +27,5 @@ calendar_Sync/.venv/
 calendar_Sync/configs/config.yaml
 calendar_Sync/proxy_code/config.yaml
 calendar_Sync/temp/
+macos/build/
+macos/.build/

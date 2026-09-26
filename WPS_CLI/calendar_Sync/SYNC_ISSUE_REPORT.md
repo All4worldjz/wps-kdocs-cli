@@ -2,7 +2,7 @@
 
 ## 测试环境
 - **服务器**: https://caldav.wps.cn
-- **用户名**: u_xQCBlhQAnuSvdY
+- **用户名**: <YOUR_WPS_CALDAV_USERNAME>
 - **日历**: 刘长春的日历
 - **认证方式**: Digest Auth
 
@@ -124,7 +124,7 @@ def sync_with_ctag(calendar_url, saved_ctag=None):
 - **认证方式**: Digest Auth (realm: "caldav.wps.cn")
 - **算法**: MD5
 - **qop**: auth
-- **日历 URL**: `/caldav/calendar/u_xQCBlhQAnuSvdY/r/9/ab61ee56-dcee-8fc4-9598-9cf150bf73ac`
+- **日历 URL**: `/caldav/calendar/<YOUR_WPS_CALDAV_USERNAME>/r/9/ab61ee56-dcee-8fc4-9598-9cf150bf73ac`
 - **支持的特性**: VEVENT, ctag, sync-token
 
 ---

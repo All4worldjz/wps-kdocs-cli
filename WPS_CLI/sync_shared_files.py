@@ -7,11 +7,11 @@ WPS 共享文件分类目录生成器
 - 不下载文件，不解析内容
 """
 
-import json, subprocess, sys, time, re, os
+import json, subprocess, sys, time
 from pathlib import Path
 from collections import defaultdict
 
-OUTPUT_DIR = Path("/Users/whoami2028/Workshop/GITREPO/WPS_CLI") / "wps_shared_files"
+OUTPUT_DIR = Path(__file__).resolve().parent / "wps_shared_files"
 CLI = "wps365-cli"
 
 def cli(*args, timeout=60):
@@ -26,7 +26,7 @@ def list_all(drive_id, parent_id="0"):
     items = []
     token = ""
     while True:
-        args = ["drive", "files", "list", drive_id, parent_id,
+        args = ["drive", "file", "list", drive_id, parent_id,
                 "--page-size", "100", "--with-permission", "-o", "json"]
         if token:
             args += ["--page-token", token]

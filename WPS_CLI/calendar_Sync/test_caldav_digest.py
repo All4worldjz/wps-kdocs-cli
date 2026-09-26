@@ -15,8 +15,8 @@ from datetime import datetime, timedelta
 # CalDAV 服务器配置
 CALDAV_CONFIG = {
     "url": "https://caldav.wps.cn",
-    "username": "u_xQCBlhQAnuSvdY",
-    "password": "LCGOFYWFxRon9rDYc3XIP30Gim",
+    "username": "<YOUR_WPS_CALDAV_USERNAME>",
+    "password": "<YOUR_WPS_CADAV_APP_PASSWORD>",
 }
 
 

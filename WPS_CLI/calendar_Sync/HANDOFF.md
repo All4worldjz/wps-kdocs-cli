@@ -97,7 +97,7 @@ Build a **WPS CalDAV Proxy** that solves compatibility issues between WPS Calend
 **Hypotheses (ordered by likelihood):**
 
 1. **Password entry error** — User may have mistyped the 20-char random password. The dots in the screenshot LOOK correct but can't be verified.
-   - **Test:** Ask user to copy-paste `9s7kZ7X4Y7kbgxKMs8uj` directly from config
+   - **Test:** Ask user to copy-paste `<YOUR_PROXY_PASSWORD>` directly from config
 
 2. **macOS Keychain stale credentials** — Previous failed attempts may have cached wrong credentials. The dialog might use Keychain instead of the manually entered password.
    - **Test:** Clear Keychain entries for `all4world.cc` and retry
@@ -182,7 +182,7 @@ location /caldav/ {
 - Server: `https://www.all4world.cc`
 - Path: `/caldav/`
 - Username: `caldav`
-- Password: `9s7kZ7X4Y7kbgxKMs8uj`
+- Password: `<YOUR_PROXY_PASSWORD>`
 - Port: 443, SSL: Yes
 
 **Important:** The `proxy_pass` password can be changed by editing `/opt/wps-caldav-proxy/config.yaml` and restarting the service.
@@ -323,12 +323,12 @@ docker exec webserver tail -f /var/log/nginx/access.log | grep caldav
 
 **WPS CalDAV (backend):**
 - URL: `https://caldav.wps.cn`
-- Username: `u_xQCBlhQAnuSvdY`
-- Password: `LCGOFYWFxRon9rDYc3XIP30Gim`
+- Username: `<YOUR_WPS_CALDAV_USERNAME>`
+- Password: `<YOUR_WPS_CADAV_APP_PASSWORD>`
 
 **Proxy (frontend):**
 - Username: `caldav`
-- Password: `9s7kZ7X4Y7kbgxKMs8uj` (randomly generated)
+- Password: `<YOUR_PROXY_PASSWORD>` (randomly generated)
 
 **⚠️ These are REAL credentials. Do not commit to public repos.**
 

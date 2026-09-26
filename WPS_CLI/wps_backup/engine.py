@@ -20,6 +20,8 @@ from . import config
 from .state import BackupState, FileSnapshot
 from .logger import setup_logger
 from . import kdocs_engine
+from .app_contract import CANCEL
+from . import wps_http
 
 logger = setup_logger()
 
@@ -98,6 +100,9 @@ def _cli(*args, timeout=60, retries=2):
                 continue
             if attempt < retries:
                 time.sleep(2 ** attempt)
+        except FileNotFoundError:
+            logger.error(f"❌ 找不到 wps365-cli 可执行文件: {config.CLI_BIN}（设置 WPS365_CLI_BIN 或安装到 ~/.local/bin）")
+            return None
         except subprocess.TimeoutExpired:
             if attempt < retries:
                 time.sleep(3)
@@ -111,7 +116,8 @@ def _get_auth_token():
         r = subprocess.run([config.CLI_BIN, "auth", "token"],
                          capture_output=True, text=True, timeout=10)
         return r.stdout.strip() if r.returncode == 0 else None
-    except Exception:
+    except Exception as e:
+        logger.error(f"❌ 获取 token 失败 ({config.CLI_BIN}): {e}")
         return None
 
 # ============================================================
@@ -125,17 +131,25 @@ def scan_remote_drives() -> list[dict]:
         raise RuntimeError("无法获取盘列表（认证可能已过期）")
     return data.get("data", {}).get("items", [])
 
-def scan_remote_files(drive_id: str, drive_name: str, parent_id: str = "0") -> list[RemoteFile]:
+def _is_otl_name(name: str) -> bool:
+    n = name.lower()
+    return n.endswith(".otl") or n.endswith(".otl.link")
+
+
+def scan_remote_files(drive_id: str, drive_name: str, parent_id: str = "0",
+                      otl_sink: list = None) -> list[RemoteFile]:
+    """递归扫描可下载文件；otl_sink 非空时同时收集 .otl/.otl.link 条目（v5：OTL 引擎免二次扫描）"""
     result = []
     token = ""
     while True:
-        args = ["drive", "files", "list", drive_id, parent_id,
+        args = ["drive", "file", "list", drive_id, parent_id,
                 "--page-size", "100", "--with-permission", "-o", "json"]
         if token:
             args += ["--page-token", token]
         data = _cli(*args)
         if not data or data.get("code") != 0:
-            break
+            # 显式失败：静默 break 会产生“非空但不完整”的扫描结果，导致 prune_stale 误删记录
+            raise RuntimeError(f"扫描目录失败: {drive_name}/{parent_id}")
         for item in data.get("data", {}).get("items", []):
             rf = RemoteFile(
                 file_id=item["id"], drive_id=drive_id, drive_name=drive_name,
@@ -143,6 +157,12 @@ def scan_remote_files(drive_id: str, drive_name: str, parent_id: str = "0") -> l
                 mtime=item.get("mtime", 0), link_url=item.get("link_url", ""),
                 parent_id=item.get("parent_id", "0"), type=item.get("type", "file"),
             )
+            if rf.type in ("file", "shortcut") and otl_sink is not None and _is_otl_name(rf.name):
+                from .otl_engine import OTLFileInfo
+                otl_sink.append(OTLFileInfo(
+                    file_id=rf.file_id, drive_id=drive_id, drive_name=drive_name, name=rf.name,
+                    size=rf.size, mtime=rf.mtime, link_id=item.get("link_id", ""),
+                    link_url=rf.link_url))
             if rf.type == "file":
                 ext = Path(rf.name).suffix.lower()
                 if ext in SKIP_EXTS:
@@ -150,7 +170,7 @@ def scan_remote_files(drive_id: str, drive_name: str, parent_id: str = "0") -> l
                     continue
                 result.append(rf)
             elif rf.type == "folder":
-                result.extend(scan_remote_files(drive_id, drive_name, item["id"]))
+                result.extend(scan_remote_files(drive_id, drive_name, item["id"], otl_sink))
         token = data.get("data", {}).get("next_page_token", "")
         if not token:
             break
@@ -215,7 +235,7 @@ def _is_retryable(exc: Exception) -> bool:
 
 def get_download_url(drive_id: str, file_id: str) -> Optional[str]:
     for attempt in range(3):
-        data = _cli("drive", "files", "download", drive_id, file_id, "-o", "json", timeout=30)
+        data = _cli("drive", "file", "download", drive_id, file_id, "-o", "json", timeout=30)
         if data and data.get("code") == 0:
             dl = data.get("data", {})
             return dl.get("url") or dl.get("download_url") or dl.get("downloadUri")
@@ -233,7 +253,7 @@ def _download_chunk(url: str, start: int, end: int, token: str) -> Optional[byte
         headers["Authorization"] = f"Bearer {token}"
 
     req = urllib.request.Request(url, headers=headers)
-    with urllib.request.urlopen(req, timeout=60) as resp:
+    with wps_http.open_url(req, timeout=60) as resp:
         return resp.read()
 
 def download_with_resume(url: str, dest: Path, token: str,
@@ -263,7 +283,7 @@ def download_with_resume(url: str, dest: Path, token: str,
                 headers["Authorization"] = f"Bearer {token}"
 
             req = urllib.request.Request(url, headers=headers)
-            with urllib.request.urlopen(req, timeout=30) as resp:
+            with wps_http.open_url(req, timeout=30) as resp:
                 # Content-Range: bytes 0-0/12345 → 提取总大小
                 content_range = resp.headers.get("Content-Range", "")
                 if "/" in content_range:
@@ -359,7 +379,7 @@ def _simple_download(url: str, dest: Path, token: str,
                 headers["Authorization"] = f"Bearer {token}"
 
             req = urllib.request.Request(url, headers=headers)
-            with urllib.request.urlopen(req, timeout=config.DOWNLOAD_TIMEOUT) as resp:
+            with wps_http.open_url(req, timeout=config.DOWNLOAD_TIMEOUT) as resp:
                 with open(tmp, "wb") as f:
                     while True:
                         block = resp.read(65536)
@@ -399,7 +419,11 @@ def _simple_download(url: str, dest: Path, token: str,
 # ============================================================
 
 class BackupEngine:
-    def __init__(self, workers: int = None):
+    progress = None
+    otl_files = None        # v5：扫描时收集的 .otl 条目（None = 未完成扫描）
+    scan_complete = False
+    def __init__(self, workers: int = None, progress=None):
+        self.progress = progress  # callable(phase, done, total, current)，供 GUI 进度
         self.state = BackupState()
         self.token = _get_auth_token()
         self.workers = workers or config.MAX_CONCURRENT
@@ -425,6 +449,8 @@ class BackupEngine:
                           result: BackupResult, counter: AtomicCounter,
                           start_time: float) -> None:
         """单个文件的下载任务"""
+        if CANCEL.is_set():
+            return
         name = rf.name
         snap = self.state.get_snapshot(rf.drive_id, rf.file_id)
         is_new = snap is None
@@ -512,8 +538,18 @@ class BackupEngine:
                 final_hash = file_hash
                 break
 
-            # 失败分析：是否值得刷新URL重试
+            # 失败分析：401/403 可能是 access token 过期（部分存储域名要求 Bearer，
+            # token 仅 2 小时有效，长跑备份会过期），刷新 token 后重试一次；
+            # 仍 403 则判定为真实权限不足
             err_lower = file_hash.lower()
+            if url_attempt == 0 and any(k in err_lower for k in ("401", "403")):
+                new_token = _get_auth_token()
+                if new_token:
+                    self.token = new_token
+                    logger.warning(f"   [{index}/{total}] ⚠️ {name} — {file_hash}，已刷新 token，重试...")
+                    continue
+
+            # 是否值得刷新URL重试
             need_refresh = any(k in err_lower for k in ("405", "chunk", "expired", "token", "signature"))
             if url_attempt == 0 and need_refresh:
                 logger.warning(f"   [{index}/{total}] ⚠️ {name} — {file_hash}，尝试刷新下载地址...")
@@ -574,6 +610,8 @@ class BackupEngine:
 
         # 进度 & ETA
         done = counter.inc()
+        if self.progress:
+            self.progress("download", done, total, name)
         if done % 10 == 0 or done == total:
             elapsed_total = time.time() - start_time
             remaining = (total - done) * (elapsed_total / done) if done > 0 else 0
@@ -608,11 +646,23 @@ class BackupEngine:
             return result
 
         all_remote: list[RemoteFile] = []
+        otl_found: list = []
+        scan_complete = True
         for d in drives:
-            files = scan_remote_files(d["id"], d["name"])
+            try:
+                files = scan_remote_files(d["id"], d["name"], otl_sink=otl_found)
+            except RuntimeError as e:
+                scan_complete = False
+                logger.error(f"   ❌ {d['name']}: {e}（本次跳过该盘，且不清理过期记录）")
+                result.errors.append(str(e))
+                continue
             all_remote.extend(files)
             logger.info(f"   📁 {d['name']}: {len(files)} 个文件")
+            if self.progress:
+                self.progress("scan", len(all_remote), 0, d["name"])
 
+        self.otl_files = otl_found
+        self.scan_complete = scan_complete
         result.total = len(all_remote)
         logger.info(f"📊 远程共 {result.total} 个文件")
 
@@ -628,9 +678,12 @@ class BackupEngine:
             else:
                 result.skipped += 1
 
-        pruned = self.state.prune_stale(current_keys)
-        if pruned:
-            logger.info(f"🧹 清理 {pruned} 条过期记录")
+        if scan_complete:
+            pruned = self.state.prune_stale(current_keys)
+            if pruned:
+                logger.info(f"🧹 清理 {pruned} 条过期记录")
+        else:
+            logger.warning("⚠️  扫描不完整，跳过过期记录清理")
 
         logger.info(f"📊 差量: {result.skipped} 跳过 | {len(to_download)} 待下载")
 
@@ -667,6 +720,10 @@ class BackupEngine:
                     logger.error(f"   ❌ 线程异常: {rf.name} — {e}")
                     with self._result_lock:
                         result.failed += 1
+
+        if CANCEL.is_set():
+            logger.warning("⏹️  备份已取消/超时，未完成的文件将在下次运行时继续")
+            result.errors.append("运行被取消或超时")
 
         # Phase 5: 内容备份汇总（dry-run 模式下跳过）
         if not dry_run and config.CONTENT_BACKUP_ENABLED and self.kdocs_available:

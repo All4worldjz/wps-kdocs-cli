@@ -3,6 +3,7 @@
 """
 
 import logging
+import os
 import sys
 from pathlib import Path
 from logging.handlers import RotatingFileHandler
@@ -30,7 +31,9 @@ def setup_logger(name: str = "wps_backup", log_file: Path = config.LOG_FILE) -> 
     fh.setFormatter(fmt)
     logger.addHandler(fh)
 
-    # 控制台 handler
+    # 控制台 handler（App agent 下 stderr 重定向到无轮转文件，设 WPS_BACKUP_NO_CONSOLE=1 关闭）
+    if os.environ.get("WPS_BACKUP_NO_CONSOLE") == "1":
+        return logger
     ch = logging.StreamHandler(sys.stderr)
     ch.setLevel(logging.INFO)
     ch.setFormatter(fmt)

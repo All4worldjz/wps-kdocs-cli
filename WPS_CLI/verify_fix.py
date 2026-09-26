@@ -63,7 +63,9 @@ def check_state_logic():
     print("验证 2: 状态管理逻辑 — 不可下载格式跳过")
     print("=" * 60)
 
-    state = BackupState()
+    # 使用临时状态文件，避免污染生产 backup_state.json
+    import tempfile
+    state = BackupState(state_file=Path(tempfile.mkdtemp()) / "test_state.json")
     # 模拟一个 .spt 失败记录
     state.mark_failed("d1", "f_spt", "无下载地址",
                       name="test.spt", size=100, mtime=100, drive_name="test")
