@@ -73,7 +73,7 @@ final class AppModel: ObservableObject {
 
     /// 调用引擎 `status --json`（GUI 与 --diagnose 共用）
     nonisolated static func fetchStatus(_ env: EngineEnvironment) -> (EngineStatus?, String?) {
-        let r = Shell.run(env.settings.pythonPath, Array(env.arguments(["status", "--json"]).dropFirst()),
+        let r = Shell.run(env.pythonPath, Array(env.arguments(["status", "--json"]).dropFirst()),
                           env: env.variables, cwd: env.settings.engineRoot, timeout: 60)
         guard r.status == 0, let data = r.stdout.data(using: .utf8) else {
             return (nil, r.stderr.split(separator: "\n").last.map(String.init) ?? "退出码 \(r.status)")
@@ -117,7 +117,7 @@ final class AppModel: ObservableObject {
         // agent 不可用时直接运行 runner 等价命令（同样经过运行锁与运行记录）
         let env = self.env
         Task.detached {
-            _ = Shell.run(env.settings.pythonPath, Array(env.arguments(["scheduled"]).dropFirst()),
+            _ = Shell.run(env.pythonPath, Array(env.arguments(["scheduled"]).dropFirst()),
                           env: env.variables, cwd: env.settings.engineRoot, timeout: 24 * 3600)
         }
     }

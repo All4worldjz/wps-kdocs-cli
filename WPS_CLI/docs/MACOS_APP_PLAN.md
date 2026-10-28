@@ -99,7 +99,7 @@ WPS Backup.app (SwiftUI, 非沙盒, macOS 13+)
 | 决策 | 默认 | 另一选项的代价 |
 |---|---|---|
 | 仅自用 vs 分发给他人 | **自用**：本机构建，Apple Development 签名，不公证 | 分发需 Developer ID（付费）+ 公证 + Hardened Runtime，并需打包 Python |
-| Python 运行时 | **依赖 Homebrew `python@3.14`**（引擎纯标准库） | 打包 python-build-standalone：App 增大约 40MB，但免依赖 |
+| Python 运行时 | **依赖系统/Homebrew `python3`**（引擎纯标准库；设置路径失效时自动探测回退） | 打包 python-build-standalone：App 增大约 40MB，但免依赖 |
 | 最低系统 | macOS 13（MenuBarExtra / SMAppService） | — |
 
 ## 9. 实施记录（2026-09-26）
@@ -113,3 +113,7 @@ WPS Backup.app (SwiftUI, 非沙盒, macOS 13+)
 | **偏离计划：TCC** | 缓存扫描默认关闭（设置中可开启，需完全磁盘访问权限） |
 | **通知** | 本机系统通知授权为“拒绝”，且 `add()` 不报错会静默丢弃 → 先检查授权，未授权时改用 AppleScript 通知 |
 | 验收 | 真实 runner 代码变更（新 CDHash）→ `build.sh --install` → 无人工步骤 kickstart → `last_run.json` exit 0、launchd last exit 0；取消 → 130；`--diagnose` health ok |
+
+### 2026-10-28：Python 路径自动回退
+
+Homebrew 删除旧 `python@3.14` 后，持久化路径导致 App 与 runner 无法启动引擎。新增 `resolvePythonPath()` 并统一经 `EngineEnvironment.pythonPath` 调用，设置路径失效时回退到 Homebrew、usr/local 或系统 `python3`；Swift Core 回归测试覆盖该场景。

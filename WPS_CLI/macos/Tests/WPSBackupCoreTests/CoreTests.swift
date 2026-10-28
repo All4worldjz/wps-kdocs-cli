@@ -30,7 +30,7 @@ final class SettingsTests: XCTestCase {
 }
 
 final class EngineEnvironmentTests: XCTestCase {
-    static let allTests: [(String, (EngineEnvironmentTests) throws -> Void)] = [("testEnvironmentAndArguments", { $0.testEnvironmentAndArguments() })]
+    static let allTests: [(String, (EngineEnvironmentTests) throws -> Void)] = [("testEnvironmentAndArguments", { $0.testEnvironmentAndArguments() }), ("testMissingPythonFallsBackToAvailableInterpreter", { $0.testMissingPythonFallsBackToAvailableInterpreter() })]
     func testEnvironmentAndArguments() {
         var s = AppSettings.defaults(engineRoot: "/eng")
         s.scheduleHour = 6; s.workers = 2; s.exportDocx = false; s.cacheScan = false
@@ -41,8 +41,16 @@ final class EngineEnvironmentTests: XCTestCase {
         XCTAssertEqual(env.variables["WPS_BACKUP_WORKERS"], "2")
         XCTAssertEqual(env.variables["WPS_AIRPAGE_EXPORT_DOCX"], "0")
         XCTAssertEqual(env.variables["WPS_OTL_CACHE_SCAN"], "0")
-        XCTAssertEqual(env.arguments(["scheduled"]), [s.pythonPath, "/eng/wps_backup.py", "scheduled"])
+        XCTAssertEqual(env.arguments(["scheduled"]), [env.pythonPath, "/eng/wps_backup.py", "scheduled"])
         XCTAssertEqual(env.stateDir, "/eng/wps_backup_state")
+    }
+
+    func testMissingPythonFallsBackToAvailableInterpreter() {
+        let available = ["/opt/homebrew/bin/python3"]
+        let resolved = resolvePythonPath("/opt/homebrew/opt/python@3.14/bin/python3.14") {
+            available.contains($0)
+        }
+        XCTAssertEqual(resolved, "/opt/homebrew/bin/python3")
     }
 }
 

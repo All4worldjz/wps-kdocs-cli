@@ -46,6 +46,7 @@ launchctl print gui/$(id -u)/cc.all4world.wpsbackup.scheduler | grep -E "state|l
 ```
 
 - **通知**：ad-hoc 签名的 App 系统通知授权为“拒绝”时（`--test-notify` 显示 `authorizationStatus=1`），自动改用 AppleScript 通知（显示为“脚本编辑器”）。可在“系统设置 → 通知 → WPS Backup”手动开启。
+- **Python 路径失效**（如 Homebrew 升级后旧 `python@3.14` 被删除）：App 与 runner 会优先使用设置中的可执行路径；失效时自动依次回退到 `/opt/homebrew/bin/python3`、`/usr/local/bin/python3`、`/usr/bin/python3`，无需手动修改 `settings.json`。
 - **不要**再运行 `python3 wps_backup.py install`：会产生第二个计划（命令现已拒绝执行）。
 
 ## 为什么不用 SMAppService（2026-09-26 实测）
@@ -59,4 +60,4 @@ launchctl print gui/$(id -u)/cc.all4world.wpsbackup.scheduler | grep -E "state|l
 
 修改 App、调度或排障后，按 `AGENTS.md`“文档维护规则”同步更新：本文件、`docs/MACOS_APP_PLAN.md` §9、`HANDOFF.md`（定时任务行与事故记录）、`AGENTS.md` 故障排查速查表。
 
-*最后更新: 2026-09-26（v1.0：经典 LaunchAgent 调度、AppleScript 通知回退）*
+*最后更新: 2026-10-28（Python 路径失效自动回退）*

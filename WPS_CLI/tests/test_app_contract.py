@@ -183,6 +183,16 @@ class TestParseAuth(unittest.TestCase):
                              "refresh_token_expires_at": "2026-01-01T00:00:00+08:00"}}
         self.assertFalse(ac.parse_auth_status(raw, now=_d(21))["refreshable"])
 
+    def test_zero_refresh_expiry_means_no_expiry(self):
+        raw = {"delegated": {"status": "valid", "has_refresh": True,
+                             "refresh_token_expires_at": "0001-01-01T00:00:00Z",
+                             "granted_scopes": ["kso.airpage.readwrite"]}}
+        a = ac.parse_auth_status(raw, now=_d(21))
+        self.assertTrue(a["refreshable"])
+        h = ac.compute_health({"auth": a, "cli": {"found": True},
+                               "last_success_at": _d(20).isoformat()}, now=_d(21))
+        self.assertEqual(h["level"], "ok", h)
+
     def test_garbage(self):
         self.assertEqual(ac.parse_auth_status(None)["status"], "unknown")
 

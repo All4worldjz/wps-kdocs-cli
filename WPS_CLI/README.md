@@ -266,6 +266,7 @@ OTL 内容备份文件包含 YAML frontmatter（file_id, drive_id, name, source_
 | 症状 | 可能原因 | 排查方法 |
 |------|---------|---------|
 | App 图标 ✗ / 需处理 | 见菜单中的原因行 | `"$HOME/Applications/WPS Backup.app/Contents/MacOS/WPSBackup" --diagnose` 打印全部状态 |
+| App 报 `python3.14 doesn't exist` | Homebrew 升级/清理后设置中的旧 Python 路径失效 | 新版 App/runner 自动回退到可用 `python3`；重新构建安装即可 |
 | 认证失败 / 无法获取盘列表 | `wps365-cli` token 过期 | App 设置 → “重新登录 WPS”；或 `wps365-cli auth login --device` |
 | 大量文件失败 | 下载 URL 过期或网络抖动 | 查看 `backup.log` 中的错误码；引擎会自动重试 |
 | 个别文件 HTTP 403 | token 过期（已自动刷新重试）或云端权限不足 | 在 WPS 云端确认文件权限 |
@@ -303,4 +304,4 @@ OTL 内容备份文件包含 YAML frontmatter（file_id, drive_id, name, source_
 
 ---
 
-*最后更新: 2026-09-26（v5 OTL 高效备份）*
+*最后更新: 2026-10-28（App/runner Python 路径自动回退）*

@@ -1,8 +1,8 @@
 # WPS CLI 工具集 — 交接文档 (Handoff)
 
-**版本:** 2.5
-**日期:** 2026-09-26
-**状态:** 生产运行中 — v5：OTL 官方 markdown_zip + docx 并行导出；WPS Backup.app 调度；wps365-cli v0.3.6
+**版本:** 2.6
+**日期:** 2026-10-28
+**状态:** 生产运行中 — App/runner Python 路径自动回退；真实备份与调度验收通过；wps365-cli v0.3.6
 **交接人:** Kimi Code CLI → Claude Code（v4.2）
 **接收人:** 下一位接力开发的大模型 Agent
 
@@ -11,24 +11,23 @@
 ## 1. 项目当前状态速览
 
 ```
-WPS 云盘差量备份        ██████████████████████  100% 同步 (2026-09-26)
-├── 快照记录:           1038 个文件，26.8 GB，0 个错误记录
-├── 上次成功运行:        2026-09-26 18:5x（定时任务，无变化运行 43–58 s，exit 0；v4.2 基线 118 s）
+WPS 云盘差量备份        ██████████████████████  100% 同步 (2026-10-28)
+├── 本次运行:            共 1072 个文件；新增 24、跳过 1048、失败 0
+├── 上次成功运行:        2026-10-28 00:05:34（exit 0）
 ├── 定时任务:           ✅ 由 WPS Backup.app 管理（cc.all4world.wpsbackup.scheduler，每小时检查、20:00 运行、失败重试），见 macos/README.md；旧 com.wps.backup 已迁移停用
-│                       ✅ 16:00 整点自动触发已实测（仅写心跳，未到点不运行）
-├── 历史事故:           2026-07-29～09-26 定时任务静默失效（见 §2.7）
+│                       ✅ launchd 真实触发与 scheduler last exit 0 已实测；心跳正常
+├── 历史事故:           2026-07-29～09-26 定时任务静默失效（见 §2.7）；2026-10-27 Python 路径失效已修复（见 §7）
 │
-OTL 专项备份（v5）       ██████████████████████  194/194 有内容的文档全部备份
-├── 远程 .otl 总数:      220 个（主引擎一次遍历收集，OTL 阶段 0 s）
-├── Markdown（官方）:     194 篇 format 5，771 处本地图片引用、失效 0（94 个 .assets 目录）
-├── docx 导出:           195 个（`E6pC1h5m`、`Nn1SvNVS` 已补齐）
-└── 永久失败（不再重试）: 26 个（6 个 .otl.link 无权限 403 + 20 个空文档），mtime 变化后自动重试
+OTL 专项备份（v5）       ██████████████████████  本次运行失败 0
+├── 远程 .otl 总数:      222 个（主引擎一次遍历收集，OTL 阶段免二次扫描）
+├── 本次内容备份:        Markdown 2 篇、docx 2 个
+└── 永久失败（不再重试）: `.otl.link` 无权限与空文档按状态记忆跳过，mtime 变化后自动重试
 │
 文档内容备份层          ⚠️ 40 个 Markdown（_content_backup/，kdocs 对企业账号 403001，已停止增长）
 WPS Backup.app          ✅ ~/Applications/WPS Backup.app，--diagnose 健康度 ok
 共享文件目录生成        ✅ 可用（手动运行）
 日历 CalDAV 代理        📋 见 calendar_Sync/AGENTS.md 和 DESIGN.md
-代码仓库                ✅ 已推送 GitHub（959e98c，2026-09-26）
+代码仓库                ✅ GitHub main（本次修复提交见 Git 历史）
 ```
 
 ---
@@ -310,7 +309,7 @@ python3 verify_fix.py
 | 项 | 值 |
 |---|---|
 | 运行平台 | macOS (Apple Silicon arm64) |
-| Python 版本 | 3.14.4（`/opt/homebrew/opt/python@3.14/bin/python3.14`，App/runner 使用此路径） |
+| Python 版本 | 3.15.0（`/opt/homebrew/bin/python3`；App/runner 在设置路径失效时自动探测可用解释器） |
 | wps365-cli 路径 | `~/.local/bin/wps365-cli` (v0.3.6；v0.3.1 备份 `~/.local/bin/wps365-cli.v0.3.1.bak`；旧版 v0.1.0 在 `/usr/local/bin/`，**不得**进入 PATH 前列) |
 | kdocs-cli 路径 | `~/.local/bin/kdocs-cli` (v2.5.22；旧版备份在 `~/.kdocs-cli/backup/`) |
 | 项目根目录 | `/Users/whoami2028/Workshop/GITREPO/WPS_CLI` |
@@ -322,7 +321,7 @@ python3 verify_fix.py
 | 旧定时任务 | `com.wps.backup` 已停用，plist 移至 `wps_backup_state/legacy_com.wps.backup.plist` |
 | 构建工具链 | Xcode 26.6 已装但许可未接受 → `build.sh` 回退 Command Line Tools（Swift 6.3.3） |
 | GitHub 仓库 | https://github.com/All4worldjz/wps-kdocs-cli |
-| Git 状态 | ✅ main 已推送（959e98c）；仓库根为上级目录 `GITREPO/`，只提交 `WPS_CLI/` |
+| Git 状态 | main 跟踪 origin/main；仓库根为上级目录 `GITREPO/`，只提交 `WPS_CLI/` 内本次相关文件，勿带入其他项目变更 |
 
 ---
 
@@ -374,6 +373,15 @@ python3 verify_fix.py
 - 诊断命令集合
 - 认证问题速查
 
+### 2026-10-27：Homebrew Python 路径失效
+
+- **症状**：菜单栏 App 报 `python3.14 doesn't exist`，无法读取引擎状态。
+- **根因**：`settings.json` 持久化了 `/opt/homebrew/opt/python@3.14/bin/python3.14`，Homebrew 升级后该文件被删除；GUI、诊断与 runner 均直接使用此路径。
+- **修复**：新增 `resolvePythonPath()`，由 `EngineEnvironment.pythonPath` 统一提供有效解释器；设置路径不可执行时依次回退 Homebrew、usr/local、系统 `python3`。新增 Swift 回归测试。
+- **验证**：Python 152 测试全部通过（含在线契约），Swift Core 19 测试通过；`build.sh --install` 后 `--diagnose` 已选用 `/opt/homebrew/bin/python3`。
+- **端到端验收**：重新设备授权后，launchd 真实备份 exit 0：1072 个文件中新增 24、跳过 1048、失败 0；OTL 222 个中新增 Markdown 2、docx 2、失败 0；scheduler last exit 0。
+- **附带修复**：新版 CLI 以 `0001-01-01T00:00:00Z` 表示无 refresh token 到期时间，曾造成误报警；`_parse_time()` 现将该哨兵值归一为 None，`parse_auth_status()` 将无到期时间的有效 refresh token 视为可刷新。最终 `--diagnose` health ok。
+
 ---
 
 ## 8. 交接检查清单
@@ -407,4 +415,4 @@ python3 verify_fix.py
 
 ---
 
-*本交接文档基于 2026-09-26 的代码状态编写（v2.4）。按 AGENTS.md“文档维护规则”，每次排障/升级后更新。*
+*最后更新: 2026-10-28（App/runner Python 路径自动回退）；按 AGENTS.md“文档维护规则”，每次排障/升级后更新。*

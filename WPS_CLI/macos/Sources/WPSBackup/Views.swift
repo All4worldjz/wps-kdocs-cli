@@ -27,7 +27,7 @@ enum Diagnose {
         let (status, err) = AppModel.fetchStatus(env)
         let health = mergeHealth(engine: status, agent: agent, engineError: err)
         print("engineRoot:   \(settings.engineRoot)")
-        print("python:       \(settings.pythonPath)")
+        print("python:       \(env.pythonPath)")
         print("scheduler:    \(agent) [\(AgentManager.lastExit)] plist=\(AgentManager.plistURL(AppConstants.schedulerLabel).path)")
         print("loginItem:    \(AgentManager.launchAtLogin)")
         print("cli:          \(status?.cli?.path ?? "-") \(status?.cli?.version ?? "")")

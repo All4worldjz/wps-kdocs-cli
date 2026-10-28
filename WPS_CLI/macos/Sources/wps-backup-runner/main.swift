@@ -28,8 +28,8 @@ func fail(_ msg: String) -> Never {
     exit(1)
 }
 
-guard FileManager.default.isExecutableFile(atPath: settings.pythonPath) else {
-    fail("找不到 Python: \(settings.pythonPath)")
+guard FileManager.default.isExecutableFile(atPath: env.pythonPath) else {
+    fail("找不到 Python: \(env.pythonPath)")
 }
 guard FileManager.default.fileExists(atPath: env.script) else {
     fail("找不到引擎脚本: \(env.script)")
@@ -41,5 +41,5 @@ setenv("WPS_BACKUP_NO_CONSOLE", "1", 1)  // 日志已写入轮转的 backup.log�
 FileManager.default.changeCurrentDirectoryPath(settings.engineRoot)
 
 let argv = env.arguments(command).map { strdup($0) } + [nil]
-execv(settings.pythonPath, argv)
+execv(env.pythonPath, argv)
 fail("execv 失败: \(String(cString: strerror(errno)))")

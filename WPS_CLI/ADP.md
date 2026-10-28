@@ -573,3 +573,15 @@ python3 sync_shared_files.py
 - `calendar_Sync/AGENTS.md` — CalDAV 代理子项目说明
 - `calendar_Sync/DESIGN.md` — CalDAV 代理设计文档
 - `verify_fix.py` — 修复验证脚本
+
+---
+
+## 11. Python 运行时路径自动回退（2026-10-28）
+
+**背景：** App 设置持久化了 Homebrew 的版本化解释器路径。Python 升级并删除旧版本后，GUI、诊断和 launchd runner 均无法启动备份引擎。
+
+**选项：** 固定新的版本化路径；要求用户手动修改设置；或在共用运行环境中探测可用解释器。
+
+**决定：** 通过 `EngineEnvironment.pythonPath` 统一调用 `resolvePythonPath()`。优先尊重仍有效的用户配置，失效时依次回退 `/opt/homebrew/bin/python3`、`/usr/local/bin/python3`、`/usr/bin/python3`；均不可用时保留原配置路径以产生明确错误。
+
+**后果：** Homebrew 常规升级不再中断 App 和定时备份；GUI 与 runner 行为一致。运行时仍依赖本机 Python，但引擎仅使用标准库，无需绑定特定小版本。

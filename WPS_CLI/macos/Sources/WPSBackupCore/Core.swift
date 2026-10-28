@@ -59,6 +59,15 @@ public struct AppSettings: Codable, Equatable {
 
 // MARK: - 引擎运行环境（runner 与 GUI 共用，保证两者环境一致）
 
+public func resolvePythonPath(_ configured: String,
+                              isExecutable: (String) -> Bool = { FileManager.default.isExecutableFile(atPath: $0) }) -> String {
+    if isExecutable(configured) { return configured }
+    for candidate in ["/opt/homebrew/bin/python3", "/usr/local/bin/python3", "/usr/bin/python3"] {
+        if isExecutable(candidate) { return candidate }
+    }
+    return configured
+}
+
 public struct EngineEnvironment {
     public let settings: AppSettings
     public let home: String
@@ -71,6 +80,7 @@ public struct EngineEnvironment {
     public var stateDir: String { settings.engineRoot + "/wps_backup_state" }
     public var backupDir: String { settings.engineRoot + "/wps_backup_data" }
     public var script: String { settings.engineRoot + "/wps_backup.py" }
+    public var pythonPath: String { resolvePythonPath(settings.pythonPath) }
 
     /// launchd 默认 PATH 不含 ~/.local/bin；/usr/local/bin 下是旧版 wps365-cli v0.1.0，刻意排除
     public var variables: [String: String] {
@@ -88,7 +98,7 @@ public struct EngineEnvironment {
     }
 
     public func arguments(_ command: [String]) -> [String] {
-        [settings.pythonPath, script] + command
+        [pythonPath, script] + command
     }
 }
 

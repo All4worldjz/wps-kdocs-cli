@@ -377,7 +377,7 @@ v4.2 变更：
 - `should_run_scheduled(now, hour, history)`：到点后当天无成功才运行；失败每小时重试，每天最多 3 次；75 不计入尝试；到点前的手动成功不算
 - `CANCEL`（`threading.Event`）：SIGTERM / 看门狗置位；下载 worker 与 OTL 循环检查后退出
 - `Watchdog`：超时置位 CANCEL，宽限期后 `os._exit(124)`（锁随进程释放）
-- `collect_status()` / `compute_health()`：`status --json` 的数据与 ok/warn/error 判定（登录失效、CLI 缺失、上次失败/超时、36h 未成功、refresh token 30 天内过期）
+- `collect_status()` / `compute_health()`：`status --json` 的数据与 ok/warn/error 判定（登录失效、CLI 缺失、上次失败/超时、36h 未成功、refresh token 30 天内过期）；`0001-01-01` 到期时间视为无到期时间，不告警
 - dry-run 不记录（否则会被当作当天已成功）
 
 ### `wps_backup/lock.py` — 单实例锁（v4.2）
@@ -471,6 +471,7 @@ v4.2 变更：
 
 | 症状 | 可能原因 | 排查方法 |
 |------|---------|---------|
+| App 报 `python3.x doesn't exist` | Homebrew 升级后持久化的版本化 Python 路径失效 | 新版 App/runner 共用 `resolvePythonPath()`，自动回退 Homebrew / usr/local / 系统 `python3`；`./macos/build.sh --install` 更新 App |
 | 认证失败 / 无法获取盘列表 | `wps365-cli` token 过期 | `wps365-cli auth status` → `wps365-cli auth refresh --delegated`；refresh 失败则重新 `auth login --device`（带完整 scopes） |
 | airpage 报 invalid_scope | token 缺 `kso.airpage.readwrite` | 重新 `auth login --device --scopes "... kso.airpage.readwrite"`（见"前置条件"） |
 | `unknown command "airpage"` | 升级后未刷新 spec | `wps365-cli spec update` |
@@ -559,4 +560,4 @@ find wps_backup_data/_content_backup -name "*.md" | wc -l
 
 ---
 
-*最后更新: 2026-09-26（v5 OTL 高效备份：官方 markdown_zip + docx 并行、一次遍历、直连下载）*
+*最后更新: 2026-10-28（App/runner Python 路径自动回退）*

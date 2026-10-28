@@ -196,6 +196,8 @@ def _parse_time(s) -> Optional[dt.datetime]:
         t = dt.datetime.fromisoformat(s)
     except ValueError:
         return None
+    if t.year == 1:
+        return None
     return t.astimezone().replace(tzinfo=None) if t.tzinfo else t
 
 
@@ -255,8 +257,8 @@ def parse_auth_status(raw: Optional[dict], now: dt.datetime = None) -> dict:
     scopes = d.get("granted_scopes") or []
     return {
         "status": d.get("status", "unknown"),
-        "refreshable": bool(d.get("has_refresh")) and exp is not None and exp > now,
-        "refresh_token_expires_at": d.get("refresh_token_expires_at"),
+        "refreshable": bool(d.get("has_refresh")) and (exp is None or exp > now),
+        "refresh_token_expires_at": exp.isoformat() if exp else None,
         "airpage_scope": AIRPAGE_SCOPE in scopes,
     }
 
